@@ -7,13 +7,20 @@ const deps = struct {
         .name = "pike",
         .path = "deps/pike/pike.zig",
     };
-
+    const zap = Pkg{
+        .name = "zap",
+        .path = "deps/zap/src/zap.zig",
+    };
+    const zlm = Pkg{
+        .name = "zlm",
+        .path = "deps/zlm/zlm.zig",
+    };
 
     const minecart_core = Pkg{
         .name = "minecart_core",
         .path = "core/lib.zig",
         .dependencies = &[_]Pkg{
-            pike,
+            pike, zlm,
         },
     };
 };
@@ -27,6 +34,8 @@ pub fn build(b: *Builder) void {
     exe.setBuildMode(mode);
 
     exe.addPackage(deps.pike);
+    exe.addPackage(deps.zap);
+    exe.addPackage(deps.zlm);
 
     exe.addPackage(deps.minecart_core);
 

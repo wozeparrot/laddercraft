@@ -3,13 +3,23 @@ const log = std.log;
 const heap = std.heap;
 
 const pike = @import("pike");
-const snow = @import("snow");
+const zap = @import("zap");
 
 const Server = @import("network/server.zig").Server;
 
-pub const io_mode = .evented;
+pub const pike_task = zap.runtime.executor.Task;
+pub const pike_batch = zap.runtime.executor.Batch;
+pub const pike_dispatch = dispatch;
+
+inline fn dispatch(batchable: anytype, args: anytype) void {
+    zap.runtime.schedule(batchable, args);
+}
 
 pub fn main() anyerror!void {
+    try try zap.runtime.run(.{}, asyncMain, .{});
+}
+
+pub fn asyncMain() !void {
     const notifier = try pike.Notifier.init();
     defer notifier.deinit();
 
@@ -24,7 +34,7 @@ pub fn main() anyerror!void {
 
     try nosuspend await frame;
 
-    log.info("stopped", .{});    
+    log.info("stopped", .{});
 }
 
 pub fn run(notifier: *const pike.Notifier, stopped: *bool) !void {

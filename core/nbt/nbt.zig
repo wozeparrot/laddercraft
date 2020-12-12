@@ -1,0 +1,15 @@
+pub const TagType = enum(u8) {
+    end,
+    byte,
+    short,
+    int,
+    long,
+    float,
+    double,
+    byte_array,
+    string,
+    list,
+    compound,
+    int_array,
+    long_array,
+};

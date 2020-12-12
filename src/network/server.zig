@@ -21,7 +21,9 @@ pub const Server = struct {
     random: rand.Random,
 
     socket: Socket,
+
     clients: ClientQueue,
+    current_client_id: i32 = 0,
 
     pub fn init(alloc: *Allocator, seed: u64) !Server {
         var socket = try Socket.init(c.AF_INET, c.SOCK_STREAM, c.IPPROTO_TCP, 0);
@@ -34,7 +36,7 @@ pub const Server = struct {
             .alloc = alloc,
 
             .seed = seed,
-            .random = rand.Xoroshiro128.init(seed).random,
+            .random = rand.DefaultPrng.init(seed).random,
 
             .socket = socket,
             .clients = ClientQueue.init(),
@@ -82,6 +84,8 @@ pub const Server = struct {
                 continue;
             };
 
+            client.id = self.current_client_id;
+            self.current_client_id += 1;
             client.arena = std.heap.ArenaAllocator.init(self.alloc);
             client.socket = conn.socket;
             client.frame = async client.handle(self, notifier);
