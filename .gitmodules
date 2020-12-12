@@ -1,0 +1,3 @@
+[submodule "deps/pike"]
+	path = deps/pike
+	url = git://github.com/lithdew/pike.git
