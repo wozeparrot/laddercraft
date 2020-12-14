@@ -13,7 +13,9 @@ const UUID = @import("../../uuid.zig").UUID;
 pub usingnamespace @import("handshake.zig");
 pub usingnamespace @import("play.zig");
 
-// generic packet
+/// generic packet
+/// s2c packets do not own the data
+/// c2s packets own the data
 pub const Packet = struct {
     length: i32 = 0,
     id: u8 = 0xFF,

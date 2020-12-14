@@ -2,6 +2,8 @@ const std = @import("std");
 const mem = std.mem;
 const Allocator = mem.Allocator;
 
+const zlm = @import("zlm").specializeOn(f64);
+
 pub fn readVarInt(reader: anytype) !i32 {
     var result: u32 = 0;
 
@@ -35,13 +37,19 @@ pub fn readByteArray(alloc: *Allocator, reader: anytype, length: i32) ![]u8 {
 
 pub fn writeVarInt(writer: anytype, value: i32) !void {
     var tmp_value: u32 = @bitCast(u32, value);
+    var tmp: u8 = @truncate(u8, tmp_value) & 0b01111111;
+    tmp_value >>= 7;
+    if (tmp_value != 0) {
+        tmp |= 0b10000000;
+    }
+    try writer.writeByte(tmp);
     while (tmp_value != 0) {
-        var tmp: u8 = @truncate(u8, tmp_value) & 0b01111111;
+        tmp = @truncate(u8, tmp_value) & 0b01111111;
         tmp_value >>= 7;
         if (tmp_value != 0) {
             tmp |= 0b10000000;
         }
-        try writer.writeByte(tmp); 
+        try writer.writeByte(tmp);
     }
 }
 
@@ -57,4 +65,8 @@ pub fn writeJSONStruct(alloc: *Allocator, writer: anytype, value: anytype) !void
     try std.json.stringify(value, .{}, array_list.outStream());
 
     try writeByteArray(writer, array_list.toOwnedSlice());
+}
+
+pub fn toPacketPosition(vec: zlm.Vec3) u64 {
+    return ((@floatToInt(u64, vec.x) & 0x3FFFFFF) << 38) | ((@floatToInt(u64, vec.z) & 0x3FFFFFF) << 12) | (@floatToInt(u64, vec.y) & 0xFFF);
 }

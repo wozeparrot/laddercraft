@@ -9,7 +9,7 @@ pub const Entity = struct {
     uuid: UUID,
 
     pos: zlm.Vec3,
-    rot: zlm.Vec2,
+    look: zlm.Vec2,
     vel: zlm.Vec3,
 };
 
