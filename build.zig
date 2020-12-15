@@ -16,8 +16,8 @@ const deps = struct {
         .path = "deps/zlm/zlm.zig",
     };
 
-    const minecart_core = Pkg{
-        .name = "minecart_core",
+    const ladder_core = Pkg{
+        .name = "ladder_core",
         .path = "core/lib.zig",
         .dependencies = &[_]Pkg{
             pike, zlm,
@@ -29,7 +29,7 @@ pub fn build(b: *Builder) void {
     const target = b.standardTargetOptions(.{});
     const mode = b.standardReleaseOptions();
 
-    const exe = b.addExecutable("minecart", "src/main.zig");
+    const exe = b.addExecutable("ladder", "src/main.zig");
     exe.setTarget(target);
     exe.setBuildMode(mode);
 
@@ -37,7 +37,7 @@ pub fn build(b: *Builder) void {
     exe.addPackage(deps.zap);
     exe.addPackage(deps.zlm);
 
-    exe.addPackage(deps.minecart_core);
+    exe.addPackage(deps.ladder_core);
 
     exe.install();
 

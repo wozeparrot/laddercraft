@@ -24,7 +24,7 @@ pub const Chunk = struct {
             .block_entities = std.AutoHashMap(block.BlockPos, block.BlockEntity).init(alloc),
 
             .x = x,
-            .z = x,
+            .z = z,
         };
     }
 
@@ -37,14 +37,7 @@ pub const Chunk = struct {
             while (cz < 16) : (cz += 1) {
                 var cx: u32 = 0;
                 while (cx < 16) : (cx += 1) {
-                    const block_x = (@intCast(u32, x) << 4) | cx;
-                    const block_z = (@intCast(u32, z) << 4) | cz;
-
-                    if (block_x % 16 == 0 or block_z % 16 == 0 or (block_x + 1) % 16 == 0 or (block_z + 1) % 16 == 0) {
-                        _ = try chunk.setBlock(cx, cy, cz, 4495);
-                    } else {
-                        _ = try chunk.setBlock(cx, cy, cz, 246);
-                    }
+                    _ = try chunk.setBlock(cx, cy, cz, 0x1);
                 }
             }
         }
@@ -60,7 +53,7 @@ pub const Chunk = struct {
 
     pub fn getBlock(self: *Chunk, x: u32, y: u32, z: u32) block.BlockState {
         const section_y = @intCast(u8, (y / 16));
-        if (self.sections.get(section_y)) |section| {
+        if (self.sections.get(section_y)) |*section| {
             return section.getBlock(x, y, z);
         } else {
             return 0;

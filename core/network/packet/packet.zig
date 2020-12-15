@@ -21,6 +21,10 @@ pub const Packet = struct {
     id: u8 = 0xFF,
     data: []u8 = undefined,
 
+    // false when reading, true when writing
+    read_write: bool = false,
+    raw_data: []u8 = undefined,
+
     pub fn init(alloc: *Allocator) !*Packet {
         const packet = try alloc.create(Packet);
         return packet;
@@ -41,14 +45,19 @@ pub const Packet = struct {
         packet.* = .{
             .length = length,
             .id = id,
-
             .data = data[1..],
+
+            .raw_data = data,
         };
         return packet;
     }
 
     pub fn deinit(self: *Packet, alloc: *Allocator) void {
-        if (self.id != 0xFF) alloc.free(self.data);
+        if (!self.read_write) {
+            if (self.id != 0xFF) alloc.free(self.raw_data);
+        } else {
+            if (self.id != 0xFF) alloc.free(self.data);
+        }
         alloc.destroy(self);
     }
 

@@ -38,7 +38,7 @@ pub const CompactedDataArray = struct {
         const offset = (index - pos * self.elements_per_long) * self.element_bits;
 
         const mask = ~(self.mask << @intCast(u6, offset));
-        self.data[pos] = (self.data[pos] & mask) | (@intCast(u64, value) << @intCast(u6, offset));
+        self.data[pos] = (self.data[pos] & mask) | (@as(u64, value) << @intCast(u6, offset));
     }
 
     pub fn get(self: *CompactedDataArray, index: usize) u32 {

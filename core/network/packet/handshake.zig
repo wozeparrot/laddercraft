@@ -104,6 +104,7 @@ pub const S2CLoginSuccessPacket = struct {
 
     pub fn encode(self: *S2CLoginSuccessPacket, alloc: *Allocator, writer: anytype) !void {
         self.base.id = 0x02;
+        self.base.read_write = true;
 
         var array_list = std.ArrayList(u8).init(alloc);
         defer array_list.deinit();
@@ -142,6 +143,7 @@ pub const S2CLoginDisconnectPacket = struct {
 
     pub fn encode(self: *S2CLoginDisconnectPacket, alloc: *Allocator, writer: anytype) !void {
         self.base.id = 0x00;
+        self.base.read_write = true;
 
         var array_list = std.ArrayList(u8).init(alloc);
         defer array_list.deinit();

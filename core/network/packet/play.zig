@@ -34,13 +34,14 @@ pub const S2CChunkDataPacket = struct {
 
     pub fn encode(self: *S2CChunkDataPacket, alloc: *Allocator, writer: anytype) !void {
         self.base.id = 0x20;
+        self.base.read_write = true;
 
         var array_list = std.ArrayList(u8).init(alloc);
         defer array_list.deinit();
         const wr = array_list.writer();
 
-        try wr.writeIntBig(u32, @bitCast(u32, self.chunk.x));
-        try wr.writeIntBig(u32, @bitCast(u32, self.chunk.z));
+        try wr.writeIntBig(i32, self.chunk.x);
+        try wr.writeIntBig(i32, self.chunk.z);
 
         try wr.writeByte(@boolToInt(self.full_chunk));
 
@@ -52,11 +53,11 @@ pub const S2CChunkDataPacket = struct {
 
         var heightmap_data_array = try world.chunk.CompactedDataArray.init(alloc, 9, 256);
         defer heightmap_data_array.deinit(alloc);
-        var x: u32 = 0;
-        while (x < 16) : (x += 1) {
-            var z: u32 = 0;
-            while (z < 16) : (z += 1) {
-                heightmap_data_array.set((x * 16) + z, self.chunk.getHighestBlockSection(@intCast(u32, x), @intCast(u32, z)));
+        var z: u32 = 0;
+        while (z < 16) : (z += 1) {
+            var x: u32 = 0;
+            while (x < 16) : (x += 1) {
+                heightmap_data_array.set((z * 16) + x, self.chunk.getHighestBlockSection(@intCast(u32, x), @intCast(u32, z)));
             }
         }
         var heightmap_nbt = nbt.Tag{
@@ -65,7 +66,7 @@ pub const S2CChunkDataPacket = struct {
                 .payload = &[_]nbt.Tag{
                     .{ .long_array = .{
                         .name = "MOTION_BLOCKING",
-                        .payload = @ptrCast([*]i64, heightmap_data_array.data.ptr)[0..heightmap_data_array.data.len],
+                        .payload = @ptrCast([*]i64, heightmap_data_array.data.ptr)[0..36],
                     }},
                 },
             },
@@ -79,10 +80,12 @@ pub const S2CChunkDataPacket = struct {
         var cs_wr = cs_data.writer();
         for (self.chunk.sections.items()) |entry| {
             const section = entry.value;
-            try cs_wr.writeIntBig(u16, section.block_count);
+            try cs_wr.writeIntBig(i16, @intCast(i16, section.block_count));
             try cs_wr.writeByte(section.data.element_bits);
             try utils.writeVarInt(cs_wr, @intCast(i32, section.data.data.len));
-            try utils.writeByteArray(cs_wr, @ptrCast([*]const u8, section.data.data.ptr)[0..section.data.data.len]);
+            for (section.data.data) |long| {
+                try cs_wr.writeIntBig(i64, @bitCast(i64, long));
+            }
         }
         try utils.writeByteArray(wr, cs_data.toOwnedSlice());
 
@@ -129,6 +132,7 @@ pub const S2CJoinGamePacket = struct {
 
     pub fn encode(self: *S2CJoinGamePacket, alloc: *Allocator, writer: anytype) !void {
         self.base.id = 0x24;
+        self.base.read_write = true;
 
         var array_list = std.ArrayList(u8).init(alloc);
         defer array_list.deinit();
@@ -193,6 +197,7 @@ pub const S2CPlayerPositionLookPacket = struct {
 
     pub fn encode(self: *S2CPlayerPositionLookPacket, alloc: *Allocator, writer: anytype) !void {
         self.base.id = 0x34;
+        self.base.read_write = true;
 
         var array_list = std.ArrayList(u8).init(alloc);
         defer array_list.deinit();
@@ -202,8 +207,8 @@ pub const S2CPlayerPositionLookPacket = struct {
         try wr.writeIntBig(u64, @bitCast(u64, self.pos.y));
         try wr.writeIntBig(u64, @bitCast(u64, self.pos.z));
 
-        try wr.writeIntBig(u32, @bitCast(u32, @floatCast(f32, self.look.y)));
-        try wr.writeIntBig(u32, @bitCast(u32, @floatCast(f32, self.look.x)));
+        try wr.writeIntBig(i32, @floatToInt(i32, self.look.y));
+        try wr.writeIntBig(i32, @floatToInt(i32, self.look.x));
 
         try wr.writeByte(self.flags);
 
@@ -239,6 +244,7 @@ pub const S2CHeldItemChangePacket = struct {
 
     pub fn encode(self: *S2CHeldItemChangePacket, alloc: *Allocator, writer: anytype) !void {
         self.base.id = 0x3f;
+        self.base.read_write = true;
 
         var array_list = std.ArrayList(u8).init(alloc);
         defer array_list.deinit();
@@ -276,6 +282,7 @@ pub const S2CSpawnPositionPacket = struct {
 
     pub fn encode(self: *S2CSpawnPositionPacket, alloc: *Allocator, writer: anytype) !void {
         self.base.id = 0x42;
+        self.base.read_write = true;
 
         var array_list = std.ArrayList(u8).init(alloc);
         defer array_list.deinit();

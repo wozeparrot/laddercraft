@@ -11,111 +11,78 @@ const pike = @import("pike");
 const Socket = pike.Socket;
 const Notifier = pike.Notifier;
 
-const mc_core = @import("minecart_core");
-const network = mc_core.network;
+const ladder_core = @import("ladder_core");
+const network = ladder_core.network;
 const packet = network.packet;
-const UUID = mc_core.UUID;
-const nbt = mc_core.nbt;
-const utils = mc_core.utils;
-const world = mc_core.world;
+const UUID = ladder_core.UUID;
+const nbt = ladder_core.nbt;
+const utils = ladder_core.utils;
+const world = ladder_core.world;
 
-const Server = @import("server.zig").Server;
-const ClientQueue = @import("server.zig").ClientQueue;
+const Player = @import("player.zig").Player;
 
-pub const Client = struct {
-    id: i32,
-    frame: @Frame(Client.handle),
+pub const NetworkHandler = struct {
+    frame: @Frame(NetworkHandler.handle),
     arena: std.heap.ArenaAllocator,
+    network_id: i32,
 
     socket: Socket,
-    conn_state: network.client.ConnectionState,
 
-    should_close: atomic.Bool = atomic.Bool.init(false),
+    pub fn init(alloc: *Allocator, socket: Socket, network_id: i32) !*NetworkHandler {
+        const network_handler = try alloc.create(NetworkHandler);
+        network_handler.* = .{
+            .frame = undefined,
+            .arena = std.heap.ArenaAllocator.init(alloc),
+            .network_id = network_id,
 
-    pub fn handle(self: *Client, server: *Server, notifier: *const Notifier) !void {
-        // register client on server
-        var node = ClientQueue.Node{ .data = self };
-        server.clients.put(&node);
-        // try to remove client
-        defer if (server.clients.remove(&node)) {
-            suspend {
-                self.socket.deinit();
-                self.arena.deinit();
-                server.alloc.destroy(self);
-            }
+            .socket = socket,
         };
+        return network_handler;
+    }
 
-        // initialize client variables
-        self.conn_state = .handshake;
+    pub fn deinit(self: *NetworkHandler) void {
+        self.socket.deinit();
+        self.arena.deinit();
 
-        // register pike notifier
-        try self.socket.registerTo(notifier);
+        await self.frame catch |err| {
+            log.err("{} while awaiting network_handler frame!", .{@errorName(err)});
+        };
+    }
 
+    pub fn start(self: *NetworkHandler, player: *Player) void {
+        self.frame = async self.handle(player);
+    }
+
+    pub fn handle(self: *NetworkHandler, player: *Player) !void {
         // reader and writer
         const reader = self.socket.reader();
         const writer = self.socket.writer();
 
+        try self.transistionToPlay(player, reader, writer);
+
         // main loop
-        while (!self.should_close.load(.SeqCst)) {
+        while (player.is_alive.load(.SeqCst)) {
             // decode a basic packet
             const base_pkt = try packet.Packet.decode(&self.arena.allocator, reader);
 
-            // switch on current connection state
-            switch (self.conn_state) {
-                .handshake, .login => try self.handleHandshake(server, base_pkt, reader, writer),
-                .play => try self.handlePlay(server, base_pkt, reader, writer),
-                else => {},
+            // handle a packet
+            switch (base_pkt.id) {
+                else => {
+                    log.err("Unknown play packet: {}", .{base_pkt});
+                    base_pkt.deinit(&self.arena.allocator);
+                },
             }
 
-            // free the packet
-            base_pkt.deinit(&self.arena.allocator);
+            // reset watchdog
+            player.watchdog.reset();
         }
     }
 
-    // handshake and login start
-    fn handleHandshake(self: *Client, server: *Server, base_pkt: *packet.Packet, reader: anytype, writer: anytype) !void {
-        switch (base_pkt.id) {
-            0x00 => switch (self.conn_state) {
-                .handshake => {
-                    // decode handshake packet
-                    const pkt = try packet.C2SHandshakePacket.decodeBase(&self.arena.allocator, base_pkt);
-                    log.debug("{}\n", .{pkt});
-
-                    // make sure protocol version matches
-                    if (pkt.protocol_version == 754) {
-                        // login state
-                        self.conn_state = pkt.next_state;
-                    } else {
-                        self.should_close.store(true, .SeqCst);
-                    }
-                },
-                .login => {
-                    // decode login start packet
-                    const pkt = try packet.C2SLoginStartPacket.decodeBase(&self.arena.allocator, base_pkt);
-                    log.debug("{}\n", .{pkt});
-
-                    // send login success packet
-                    const spkt = try packet.S2CLoginSuccessPacket.init(&self.arena.allocator);
-                    spkt.uuid = UUID.new(&std.rand.DefaultPrng.init(server.seed + @bitCast(u64, std.time.timestamp())).random);
-                    spkt.username = pkt.username;
-                    try spkt.encode(&self.arena.allocator, writer);
-                    log.debug("{}\n", .{spkt});
-                    spkt.deinit(&self.arena.allocator);
-
-                    // play state
-                    try self.transistionToPlay(server, reader, writer);
-                },
-                .status => {},
-                else => {},
-            },
-            else => log.err("Unknown handshake packet: {}", .{base_pkt}),
-        }
-    }
-
-    fn transistionToPlay(self: *Client, server: *Server, reader: anytype, writer: anytype) !void {
+    fn transistionToPlay(self: *NetworkHandler, player: *Player, reader: anytype, writer: anytype) !void {
         // send join game packet
         const spkt = try packet.S2CJoinGamePacket.init(&self.arena.allocator);
-        spkt.entity_id = self.id;
+        spkt.entity_id = self.network_id;
+        spkt.gamemode = .{ .mode = .creative, .hardcore = false };
         spkt.dimension_codec = nbt.Tag{
             .compound = .{
                 .name = "",
@@ -480,6 +447,24 @@ pub const Client = struct {
         log.debug("{}\n", .{spkt});
         spkt.deinit(&self.arena.allocator);
 
+        // send chunks
+        var chunk = try world.chunk.Chunk.initFlat(&self.arena.allocator, 0, 0);
+        defer chunk.deinit();
+        var cx: i32 = -1;
+        while (cx <= 1) : (cx += 1) {
+            var cz: i32 = -1;
+            while (cz <= 1) : (cz += 1) {
+                chunk.x = cx;
+                chunk.z = cz;
+                const spkt2 = try packet.S2CChunkDataPacket.init(&self.arena.allocator);
+                spkt2.chunk = chunk;
+                spkt2.full_chunk = true;
+                try spkt2.encode(&self.arena.allocator, writer);
+                log.debug("{}\n", .{spkt2});
+                spkt2.deinit(&self.arena.allocator);
+            }
+        }
+
         // send player position look packet
         const spkt3 = try packet.S2CPlayerPositionLookPacket.init(&self.arena.allocator);
         spkt3.pos = zlm.vec3(0, 63, 0);
@@ -499,23 +484,5 @@ pub const Client = struct {
         // try spkt5.encode(&self.arena.allocator, writer);
         // log.debug("{}\n", .{spkt5});
         // spkt5.deinit(&self.arena.allocator);
-
-        // send chunk
-        var chunk = try world.chunk.Chunk.initFlat(&self.arena.allocator, 0, 0);
-        defer chunk.deinit();
-        const spkt2 = try packet.S2CChunkDataPacket.init(&self.arena.allocator);
-        spkt2.chunk = chunk;
-        spkt2.full_chunk = true;
-        try spkt2.encode(&self.arena.allocator, writer);
-        log.debug("{}\n", .{spkt2});
-        spkt2.deinit(&self.arena.allocator);
-
-        self.conn_state = .play;
-    }
-
-    fn handlePlay(self: *Client, server: *Server, base_pkt: *packet.Packet, reader: anytype, writer: anytype) !void {
-        switch (base_pkt.id) {
-            else => log.err("Unknown play packet: {}", .{base_pkt}),
-        }
     }
 };

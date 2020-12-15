@@ -29,7 +29,7 @@ pub const ChunkSection = struct {
         const old_block = self.getBlock(x, y, z);
         if (old_block == 0 and block_state != 0) {
             self.block_count += 1;
-        } else {
+        } else if (old_block != 0 and block_state == 0) {
             self.block_count -= 1;
         }
         self.data.set(getIndex(x, y, z), block_state);
