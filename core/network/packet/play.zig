@@ -15,6 +15,44 @@ const game = @import("../../game/game.zig");
 const world = @import("../../world/world.zig");
 const nbt = @import("../../nbt/nbt.zig");
 
+// s2c | keep alive packet | 0x1f
+pub const S2CKeepAlivePacket = struct {
+    base: *Packet,
+
+    id: u64 = 0,
+
+    pub fn init(alloc: *Allocator) !*S2CKeepAlivePacket {
+        const base = try Packet.init(alloc);
+
+        const packet = try alloc.create(S2CKeepAlivePacket);
+        packet.* = S2CKeepAlivePacket{
+            .base = base,
+        };
+        return packet;
+    }
+
+    pub fn encode(self: *S2CKeepAlivePacket, alloc: *Allocator, writer: anytype) !void {
+        self.base.id = 0x1f;
+        self.base.read_write = true;
+
+        var array_list = std.ArrayList(u8).init(alloc);
+        defer array_list.deinit();
+        const wr = array_list.writer();
+
+        try wr.writeIntBig(u64, self.id);
+
+        self.base.data = array_list.toOwnedSlice();
+        self.base.length = @intCast(i32, self.base.data.len) + 1;
+
+        try self.base.encode(alloc, writer);
+    }
+
+    pub fn deinit(self: *S2CKeepAlivePacket, alloc: *Allocator) void {
+        self.base.deinit(alloc);
+        alloc.destroy(self);
+    }
+};
+
 // s2c | chunk data packet | 0x20
 pub const S2CChunkDataPacket = struct {
     base: *Packet,

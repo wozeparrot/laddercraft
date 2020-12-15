@@ -5,6 +5,7 @@ const log = std.log;
 
 const pike = @import("pike");
 const Notifier = pike.Notifier;
+const zap = @import("zap");
 
 const ladder_core = @import("ladder_core");
 const Chunk = ladder_core.world.chunk.Chunk;
@@ -13,9 +14,6 @@ const Server = @import("server.zig").Server;
 const Player = @import("player/player.zig").Player;
 
 pub const Group = struct {
-    const Players = std.atomic.Queue(*Player);
-
-    frame: @Frame(Group.run),
     alloc: *Allocator,
 
     server: *Server,
@@ -31,7 +29,6 @@ pub const Group = struct {
     pub fn init(alloc: *Allocator, server: *Server, notifier: *const Notifier) !*Group {
         const group = try alloc.create(Group);
         group.* = .{
-            .frame = undefined,
             .alloc = alloc,
 
             .server = server,
@@ -50,30 +47,39 @@ pub const Group = struct {
     pub fn deinit(self: *Group) void {
         self.is_alive.store(false, .SeqCst);
 
-        await self.frame catch |err| {
-            log.err("{} while awaiting group frame!", .{@errorName(err)});
-        };
-
         const held = self.players_lock.acquire();
         for (self.players.items()) |entry| {
             entry.key.deinit();
-            self.alloc.destroy(entry.key);
         }
+        held.release();
         self.players.deinit();
         self.chunks.deinit();
+
+        self.alloc.destroy(self);
     }
 
-    pub fn start(self: *Group) void {
+    pub fn start(self: *Group) !void {
         self.is_alive.store(true, .SeqCst);
-        self.frame = async self.run();
+        try zap.runtime.spawn(.{}, Group.run, .{self});
     }
 
-    pub fn run(self: *Group) !void {
+    pub fn run(self: *Group) void {
+        self._run() catch |err| {
+            log.err("group: {}", .{@errorName(err)});
+        };
+    }
+
+    pub fn _run(self: *Group) !void {
         while (self.is_alive.load(.SeqCst)) {
             if (self.player_count.get() == 0) {
                 self.is_alive.store(false, .SeqCst);
             }
         }
+
+        const held = self.server.groups_lock.acquire();
+        self.server.groups.removeAssertDiscard(self);
+        held.release();
+        self.deinit();
     }
 
     pub fn addPlayer(self: *Group, player: *Player) !void {
@@ -84,7 +90,6 @@ pub const Group = struct {
         try self.players.put(player, {});
 
         player.group = self;
-        player.start(self.notifier);
     }
 
     pub fn removePlayer(self: *Group, player: *Player) void {

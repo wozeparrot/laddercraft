@@ -1,9 +1,11 @@
 const std = @import("std");
 const mem = std.mem;
 const Allocator = mem.Allocator;
+const log = std.log;
 
 const pike = @import("pike");
 const Notifier = pike.Notifier;
+const zap = @import("zap");
 
 const ladder_core = @import("ladder_core");
 const lc_player = ladder_core.player;
@@ -12,30 +14,28 @@ const NetworkHandler = @import("network_handler.zig").NetworkHandler;
 const Group = @import("../group.zig").Group;
 
 pub const Player = struct {
-    frame: @Frame(Player.run),
     alloc: *Allocator,
 
-    group: *Group,
+    group: ?*Group,
 
     network_handler: *NetworkHandler,
     player: lc_player.Player,
 
     is_alive: std.atomic.Bool,
-    watchdog: std.time.Timer,
+    keep_alive: std.time.Timer,
 
     pub fn init(alloc: *Allocator, network_handler: *NetworkHandler) !*Player {
         const player = try alloc.create(Player);
         player.* = .{
-            .frame = undefined,
             .alloc = alloc,
 
-            .group = undefined,
+            .group = null,
 
             .network_handler = network_handler,
             .player = undefined,
 
             .is_alive = std.atomic.Bool.init(true),
-            .watchdog = try std.time.Timer.start()
+            .keep_alive = try std.time.Timer.start(),
         };
         return player;
     }
@@ -44,24 +44,35 @@ pub const Player = struct {
         self.is_alive.store(false, .SeqCst);
 
         self.network_handler.deinit();
-        self.alloc.destroy(self.network_handler);
 
-        await self.frame catch |err| {
-            log.err("{} while awaiting player frame!", .{@errorName(err)});
+        self.alloc.destroy(self);
+    }
+
+    pub fn start(self: *Player, notifier: *const Notifier) !void {
+        self.is_alive.store(true, .SeqCst);
+        
+        try zap.runtime.spawn(.{}, Player.run, .{self, notifier});
+    }
+
+    pub fn run(self: *Player, notifier: *const Notifier) void {
+        self._run(notifier) catch |err| {
+            log.err("player: {}", .{@errorName(err)});
         };
     }
 
-    pub fn start(self: *Player, notifier: *const Notifier) void {
-        self.is_alive.store(true, .SeqCst);
-        self.network_handler.start(self);
-        self.frame = async self.run(notifier);
-    }
-
-    pub fn run(self: *Player, notifier: *const Notifier) !void {
+    pub fn _run(self: *Player, notifier: *const Notifier) !void {
         while (self.is_alive.load(.SeqCst)) {
-            if (self.watchdog.read() > std.time.ns_per_s * 10) {
-                self.is_alive.store(false, .SeqCst);
+            if (self.keep_alive.read() > std.time.ns_per_s) {
+                
             }
         }
+
+        if (self.group) |group| {
+            const held = group.players_lock.acquire();
+            group.players.removeAssertDiscard(self);
+            _ = group.player_count.decr();
+            held.release();
+        }
+        self.deinit();
     }
 };

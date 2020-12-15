@@ -10,6 +10,7 @@ const zlm = @import("zlm").specializeOn(f64);
 const pike = @import("pike");
 const Socket = pike.Socket;
 const Notifier = pike.Notifier;
+const zap = @import("zap");
 
 const ladder_core = @import("ladder_core");
 const network = ladder_core.network;
@@ -20,22 +21,31 @@ const utils = ladder_core.utils;
 const world = ladder_core.world;
 
 const Player = @import("player.zig").Player;
+const Server = @import("../server.zig").Server;
 
 pub const NetworkHandler = struct {
-    frame: @Frame(NetworkHandler.handle),
+    alloc: *Allocator,
     arena: std.heap.ArenaAllocator,
     network_id: i32,
 
     socket: Socket,
+    reader: std.io.Reader(*Socket, anyerror, Socket.read),
+    writer: std.io.Writer(*Socket, anyerror, Socket.write),
+
+    player: *Player,
 
     pub fn init(alloc: *Allocator, socket: Socket, network_id: i32) !*NetworkHandler {
         const network_handler = try alloc.create(NetworkHandler);
         network_handler.* = .{
-            .frame = undefined,
+            .alloc = alloc,
             .arena = std.heap.ArenaAllocator.init(alloc),
             .network_id = network_id,
 
             .socket = socket,
+            .reader = undefined,
+            .writer = undefined,
+
+            .player = undefined,
         };
         return network_handler;
     }
@@ -44,41 +54,136 @@ pub const NetworkHandler = struct {
         self.socket.deinit();
         self.arena.deinit();
 
-        await self.frame catch |err| {
-            log.err("{} while awaiting network_handler frame!", .{@errorName(err)});
+        self.alloc.destroy(self);
+    }
+
+    pub fn start(self: *NetworkHandler, server: *Server) !void {
+        try zap.runtime.spawn(.{}, NetworkHandler.handle, .{self, server});
+    }
+
+    pub fn handle(self: *NetworkHandler, server: *Server) void {
+        self._handle(server) catch |err| {
+            log.err("network_handler: {}", .{@errorName(err)});
         };
     }
 
-    pub fn start(self: *NetworkHandler, player: *Player) void {
-        self.frame = async self.handle(player);
-    }
+    pub fn _handle(self: *NetworkHandler, server: *Server) !void {
+        // register socket to notifier
+        try self.socket.registerTo(server.notifier);
 
-    pub fn handle(self: *NetworkHandler, player: *Player) !void {
-        // reader and writer
-        const reader = self.socket.reader();
-        const writer = self.socket.writer();
+        // const reader = self.socket.reader();
+        // const writer = self.socket.writer();
 
-        try self.transistionToPlay(player, reader, writer);
+        self.reader = self.socket.reader();
+        self.writer = self.socket.writer();
 
-        // main loop
-        while (player.is_alive.load(.SeqCst)) {
-            // decode a basic packet
-            const base_pkt = try packet.Packet.decode(&self.arena.allocator, reader);
+        // check valid handshake and login
+        if (self.handleHandshake(server, self.reader, self.writer) catch |err| {
+            self.deinit();
+            return;
+        }) {
+            // create player
+            self.player = try Player.init(self.alloc, self);
+            try server.findBestGroup(self.player);
+            try self.player.start(server.notifier);
 
-            // handle a packet
-            switch (base_pkt.id) {
-                else => {
-                    log.err("Unknown play packet: {}", .{base_pkt});
-                    base_pkt.deinit(&self.arena.allocator);
-                },
+            // send join game packets
+            try self.transistionToPlay(server, self.reader, self.writer);
+
+            // main loop
+            while (self.player.is_alive.load(.SeqCst)) {
+                // decode a basic packet
+                const base_pkt = packet.Packet.decode(&self.arena.allocator, self.reader) catch |err| switch (err) {
+                    error.SocketNotListening,
+                    error.OperationCancelled,
+                    error.EndOfStream,
+                    => break,
+                    else => return err,
+                };
+
+                // handle a play packet
+                switch (base_pkt.id) {
+                    else => {
+                        log.err("Unknown play packet: {}", .{base_pkt});
+                        base_pkt.deinit(&self.arena.allocator);
+                    },
+                }
             }
 
-            // reset watchdog
-            player.watchdog.reset();
+            self.player.is_alive.store(false, .SeqCst);
+        } else self.deinit();
+    }
+
+    // handle handshake and login before creating a player
+    fn handleHandshake(self: *NetworkHandler, server: *Server, reader: anytype, writer: anytype) !bool {
+        // current connection state
+        var conn_state: network.client.ConnectionState = .handshake;
+
+        // loop until we reach play state or close the connection
+        while (true) {
+            const base_pkt = try packet.Packet.decode(&self.arena.allocator, reader);
+
+            switch (base_pkt.id) {
+                0x00 => switch (conn_state) {
+                    .handshake => {
+                        // decode handshake packet
+                        const pkt = try packet.C2SHandshakePacket.decodeBase(&self.arena.allocator, base_pkt);
+                        defer pkt.deinit(&self.arena.allocator);
+                        log.debug("{}\n", .{pkt});
+
+                        if (pkt.next_state == .login) {
+                            // make sure protocol version matches
+                            if (pkt.protocol_version == 754) {
+                                // login state
+                                conn_state = .login;
+                            } else {
+                                const spkt = try packet.S2CLoginDisconnectPacket.init(&self.arena.allocator);
+                                defer spkt.deinit(&self.arena.allocator);
+                                spkt.reason = .{ .text = "Protocol version mismatch!" };
+                                try spkt.encode(&self.arena.allocator, writer);
+                                log.debug("{}\n", .{spkt});
+
+                                return false;
+                            }
+                        } else {
+                            conn_state = .status;
+                        }
+                    },
+                    .login => {
+                        // decode login start packet
+                        const pkt = try packet.C2SLoginStartPacket.decodeBase(&self.arena.allocator, base_pkt);
+                        defer pkt.deinit(&self.arena.allocator);
+                        log.debug("{}\n", .{pkt});
+
+                        // send login success packet
+                        const spkt = try packet.S2CLoginSuccessPacket.init(&self.arena.allocator);
+                        defer spkt.deinit(&self.arena.allocator);
+                        spkt.uuid = UUID.new(&std.rand.DefaultPrng.init(@bitCast(u64, std.time.timestamp())).random);
+                        spkt.username = pkt.username;
+                        try spkt.encode(&self.arena.allocator, writer);
+                        log.debug("{}\n", .{spkt});
+
+                        return true;
+                    },
+                    .status => {
+                        base_pkt.deinit(&self.arena.allocator);
+                        return false;
+                    },
+                    else => {
+                        base_pkt.deinit(&self.arena.allocator);
+                        return false;
+                    },
+                },
+                else => {
+                    log.err("Unknown handshake packet: {}", .{base_pkt});
+                    base_pkt.deinit(&self.arena.allocator);
+                    return false;
+                },
+            }
         }
     }
 
-    fn transistionToPlay(self: *NetworkHandler, player: *Player, reader: anytype, writer: anytype) !void {
+    fn transistionToPlay(self: *NetworkHandler, server: *Server, reader: anytype, writer: anytype) !void {
         // send join game packet
         const spkt = try packet.S2CJoinGamePacket.init(&self.arena.allocator);
         spkt.entity_id = self.network_id;
