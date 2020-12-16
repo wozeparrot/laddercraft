@@ -17,16 +17,24 @@ pub usingnamespace @import("play.zig");
 /// s2c packets do not own the data
 /// c2s packets own the data
 pub const Packet = struct {
-    length: i32 = 0,
-    id: u8 = 0xFF,
-    data: []u8 = undefined,
+    length: i32,
+    id: u8,
+    data: []u8,
 
     // false when reading, true when writing
-    read_write: bool = false,
-    raw_data: []u8 = undefined,
+    read_write: bool,
+    raw_data: []u8,
 
     pub fn init(alloc: *Allocator) !*Packet {
         const packet = try alloc.create(Packet);
+        packet.* = .{
+            .length = 0,
+            .id = 0xFF,
+            .data = undefined,
+
+            .read_write = false,
+            .raw_data = undefined,
+        };
         return packet;
     }
 
@@ -47,6 +55,7 @@ pub const Packet = struct {
             .id = id,
             .data = data[1..],
 
+            .read_write = false,
             .raw_data = data,
         };
         return packet;

@@ -31,24 +31,23 @@ pub const S2CKeepAlivePacket = struct {
         return packet;
     }
 
-    pub fn encode(self: *S2CKeepAlivePacket, alloc: *Allocator, writer: anytype) !void {
+    pub fn encode(self: *S2CKeepAlivePacket, alloc: *Allocator) !*Packet {
         self.base.id = 0x1f;
         self.base.read_write = true;
+        self.base.length = @sizeOf(S2CKeepAlivePacket) - @sizeOf(usize) + 1;
 
-        var array_list = std.ArrayList(u8).init(alloc);
-        defer array_list.deinit();
-        const wr = array_list.writer();
+        var data = try alloc.alloc(u8, @intCast(usize, self.base.length) - 1);
+        var strm = std.io.fixedBufferStream(data);
+        const wr = strm.writer();
 
         try wr.writeIntBig(u64, self.id);
 
-        self.base.data = array_list.toOwnedSlice();
-        self.base.length = @intCast(i32, self.base.data.len) + 1;
+        self.base.data = data;
 
-        try self.base.encode(alloc, writer);
+        return self.base;
     }
 
     pub fn deinit(self: *S2CKeepAlivePacket, alloc: *Allocator) void {
-        self.base.deinit(alloc);
         alloc.destroy(self);
     }
 };
@@ -70,13 +69,13 @@ pub const S2CChunkDataPacket = struct {
         return packet;
     }
 
-    pub fn encode(self: *S2CChunkDataPacket, alloc: *Allocator, writer: anytype) !void {
+    pub fn encode(self: *S2CChunkDataPacket, alloc: *Allocator) !*Packet {
         self.base.id = 0x20;
         self.base.read_write = true;
 
-        var array_list = std.ArrayList(u8).init(alloc);
-        defer array_list.deinit();
-        const wr = array_list.writer();
+        var buf = try alloc.alloc(u8, 2097151);
+        var strm = std.io.fixedBufferStream(buf);
+        const wr = strm.writer();
 
         try wr.writeIntBig(i32, self.chunk.x);
         try wr.writeIntBig(i32, self.chunk.z);
@@ -129,14 +128,13 @@ pub const S2CChunkDataPacket = struct {
 
         try utils.writeVarInt(wr, 0);
 
-        self.base.data = array_list.toOwnedSlice();
+        self.base.data = alloc.shrink(buf, strm.pos);
         self.base.length = @intCast(i32, self.base.data.len) + 1;
 
-        try self.base.encode(alloc, writer);
+        return self.base;
     }
 
     pub fn deinit(self: *S2CChunkDataPacket, alloc: *Allocator) void {
-        self.base.deinit(alloc);
         alloc.destroy(self);
     }
 };
@@ -168,7 +166,7 @@ pub const S2CJoinGamePacket = struct {
         return packet;
     }
 
-    pub fn encode(self: *S2CJoinGamePacket, alloc: *Allocator, writer: anytype) !void {
+    pub fn encode(self: *S2CJoinGamePacket, alloc: *Allocator) !*Packet {
         self.base.id = 0x24;
         self.base.read_write = true;
 
@@ -205,11 +203,10 @@ pub const S2CJoinGamePacket = struct {
         self.base.data = array_list.toOwnedSlice();
         self.base.length = @intCast(i32, self.base.data.len) + 1;
 
-        try self.base.encode(alloc, writer);
+        return self.base;
     }
 
     pub fn deinit(self: *S2CJoinGamePacket, alloc: *Allocator) void {
-        self.base.deinit(alloc);
         alloc.destroy(self);
     }
 };
@@ -233,7 +230,7 @@ pub const S2CPlayerPositionLookPacket = struct {
         return packet;
     }
 
-    pub fn encode(self: *S2CPlayerPositionLookPacket, alloc: *Allocator, writer: anytype) !void {
+    pub fn encode(self: *S2CPlayerPositionLookPacket, alloc: *Allocator) !*Packet {
         self.base.id = 0x34;
         self.base.read_write = true;
 
@@ -255,11 +252,10 @@ pub const S2CPlayerPositionLookPacket = struct {
         self.base.data = array_list.toOwnedSlice();
         self.base.length = @intCast(i32, self.base.data.len) + 1;
 
-        try self.base.encode(alloc, writer);
+        return self.base;
     }
 
     pub fn deinit(self: *S2CPlayerPositionLookPacket, alloc: *Allocator) void {
-        self.base.deinit(alloc);
         alloc.destroy(self);
     }
 };
@@ -280,7 +276,7 @@ pub const S2CHeldItemChangePacket = struct {
         return packet;
     }
 
-    pub fn encode(self: *S2CHeldItemChangePacket, alloc: *Allocator, writer: anytype) !void {
+    pub fn encode(self: *S2CHeldItemChangePacket, alloc: *Allocator) !*Packet {
         self.base.id = 0x3f;
         self.base.read_write = true;
 
@@ -293,11 +289,10 @@ pub const S2CHeldItemChangePacket = struct {
         self.base.data = array_list.toOwnedSlice();
         self.base.length = @intCast(i32, self.base.data.len) + 1;
 
-        try self.base.encode(alloc, writer);
+        return self.base;
     }
 
     pub fn deinit(self: *S2CHeldItemChangePacket, alloc: *Allocator) void {
-        self.base.deinit(alloc);
         alloc.destroy(self);
     }
 };
@@ -318,7 +313,7 @@ pub const S2CSpawnPositionPacket = struct {
         return packet;
     }
 
-    pub fn encode(self: *S2CSpawnPositionPacket, alloc: *Allocator, writer: anytype) !void {
+    pub fn encode(self: *S2CSpawnPositionPacket, alloc: *Allocator) !*Packet {
         self.base.id = 0x42;
         self.base.read_write = true;
 
@@ -331,11 +326,10 @@ pub const S2CSpawnPositionPacket = struct {
         self.base.data = array_list.toOwnedSlice();
         self.base.length = @intCast(i32, self.base.data.len) + 1;
 
-        try self.base.encode(alloc, writer);
+        return self.base;
     }
 
     pub fn deinit(self: *S2CSpawnPositionPacket, alloc: *Allocator) void {
-        self.base.deinit(alloc);
         alloc.destroy(self);
     }
 };

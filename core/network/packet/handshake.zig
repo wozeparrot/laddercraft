@@ -21,12 +21,7 @@ pub const C2SHandshakePacket = struct {
     server_port: u16,
     next_state: client.ConnectionState,
 
-    pub fn decode(alloc: *Allocator, rd: anytype) !*C2SHandshakePacket {
-        const base = Packet.decode(alloc, rd);
-        return decodeBase(alloc, base);
-    }
-
-    pub fn decodeBase(alloc: *Allocator, base: *Packet) !*C2SHandshakePacket {
+    pub fn decode(alloc: *Allocator, base: *Packet) !*C2SHandshakePacket {
         const brd = base.toStream().reader();
 
         const protocol_version = try utils.readVarInt(brd);
@@ -48,7 +43,6 @@ pub const C2SHandshakePacket = struct {
 
     pub fn deinit(self: *C2SHandshakePacket, alloc: *Allocator) void {
         alloc.free(self.server_address);
-        self.base.deinit(alloc);
         alloc.destroy(self);
     }
 };
@@ -59,12 +53,7 @@ pub const C2SLoginStartPacket = struct {
 
     username: []const u8,
 
-    pub fn decode(alloc: *Allocator, rd: anytype) !*C2SLoginStartPacket {
-        const base = Packet.decode(alloc, rd);
-        return decodeBase(alloc, base);
-    }
-
-    pub fn decodeBase(alloc: *Allocator, base: *Packet) !*C2SLoginStartPacket {
+    pub fn decode(alloc: *Allocator, base: *Packet) !*C2SLoginStartPacket {
         const brd = base.toStream().reader();
 
         const username = try utils.readByteArray(alloc, brd, try utils.readVarInt(brd));
@@ -80,7 +69,6 @@ pub const C2SLoginStartPacket = struct {
 
     pub fn deinit(self: *C2SLoginStartPacket, alloc: *Allocator) void {
         alloc.free(self.username);
-        self.base.deinit(alloc);
         alloc.destroy(self);
     }
 };
@@ -102,7 +90,7 @@ pub const S2CLoginSuccessPacket = struct {
         return packet;
     }
 
-    pub fn encode(self: *S2CLoginSuccessPacket, alloc: *Allocator, writer: anytype) !void {
+    pub fn encode(self: *S2CLoginSuccessPacket, alloc: *Allocator) !*Packet {
         self.base.id = 0x02;
         self.base.read_write = true;
 
@@ -116,11 +104,10 @@ pub const S2CLoginSuccessPacket = struct {
         self.base.data = array_list.toOwnedSlice();
         self.base.length = @intCast(i32, self.base.data.len) + 1;
 
-        try self.base.encode(alloc, writer);
+        return self.base;
     }
 
     pub fn deinit(self: *S2CLoginSuccessPacket, alloc: *Allocator) void {
-        self.base.deinit(alloc);
         alloc.destroy(self);
     }
 };
@@ -141,7 +128,7 @@ pub const S2CLoginDisconnectPacket = struct {
         return packet;
     }
 
-    pub fn encode(self: *S2CLoginDisconnectPacket, alloc: *Allocator, writer: anytype) !void {
+    pub fn encode(self: *S2CLoginDisconnectPacket, alloc: *Allocator) !*Packet {
         self.base.id = 0x00;
         self.base.read_write = true;
 
@@ -154,11 +141,10 @@ pub const S2CLoginDisconnectPacket = struct {
         self.base.data = array_list.toOwnedSlice();
         self.base.length = @intCast(i32, self.base.data.len) + 1;
 
-        try self.base.encode(alloc, writer);
+        return self.base;
     }
 
     pub fn deinit(self: *S2CLoginDisconnectPacket, alloc: *Allocator) void {
-        self.base.deinit(alloc);
         alloc.destroy(self);
     }
 };

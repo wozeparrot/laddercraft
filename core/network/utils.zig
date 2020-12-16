@@ -24,15 +24,16 @@ pub fn readVarInt(reader: anytype) !i32 {
 }
 
 pub fn readByteArray(alloc: *Allocator, reader: anytype, length: i32) ![]u8 {
-    var array_list = std.ArrayList(u8).init(alloc);
-    defer array_list.deinit();
-    
+    var buf = try alloc.alloc(u8, @intCast(usize, length));
+    var strm = std.io.fixedBufferStream(buf);
+    var wr = strm.writer();
+
     var i: usize = 0;
     while (i < length) : (i += 1) {
-        try array_list.append(try reader.readByte());
+        try wr.writeByte(try reader.readByte());
     }
 
-    return array_list.toOwnedSlice();
+    return buf;
 }
 
 pub fn writeVarInt(writer: anytype, value: i32) !void {
