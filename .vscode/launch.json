@@ -11,6 +11,7 @@
             "target": "./zig-cache/bin/ladder",
             "cwd": "${workspaceRoot}",
             "valuesFormatting": "parseText",
+            "preLaunchTask": "Build",
         }
     ]
 }
