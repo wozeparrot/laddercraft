@@ -15,6 +15,79 @@ const game = @import("../../game/game.zig");
 const world = @import("../../world/world.zig");
 const nbt = @import("../../nbt/nbt.zig");
 
+// c2s | player position packet | 0x12
+pub const C2SPlayerPositionPacket = struct {
+    base: *Packet,
+
+    x: f64,
+    y: f64,
+    z: f64,
+    on_ground: bool,
+
+    pub fn decode(alloc: *Allocator, base: *Packet) !*C2SPlayerPositionPacket {
+        const brd = base.toStream().reader();
+
+        const x = @bitCast(f64, try brd.readIntBig(i64));
+        const y = @bitCast(f64, try brd.readIntBig(i64));
+        const z = @bitCast(f64, try brd.readIntBig(i64));
+        const on_ground = if ((try brd.readByte()) == 1) true else false;
+
+        const packet = try alloc.create(C2SPlayerPositionPacket);
+        packet.* = C2SPlayerPositionPacket{
+            .base = base,
+
+            .x = x,
+            .y = y,
+            .z = z,
+            .on_ground = on_ground,
+        };
+        return packet;
+    }
+
+    pub fn deinit(self: *C2SPlayerPositionPacket, alloc: *Allocator) void {
+        alloc.destroy(self);
+    }
+};
+
+// s2c | unload chunk packet | 0x1c
+pub const S2CUnloadChunkPacket = struct {
+    base: *Packet,
+
+    chunk_x: i32 = 0,
+    chunk_z: i32 = 0,
+
+    pub fn init(alloc: *Allocator) !*S2CUnloadChunkPacket {
+        const base = try Packet.init(alloc);
+
+        const packet = try alloc.create(S2CUnloadChunkPacket);
+        packet.* = S2CUnloadChunkPacket{
+            .base = base,
+        };
+        return packet;
+    }
+
+    pub fn encode(self: *S2CUnloadChunkPacket, alloc: *Allocator) !*Packet {
+        self.base.id = 0x1c;
+        self.base.read_write = true;
+        self.base.length = @sizeOf(S2CUnloadChunkPacket) - @sizeOf(usize) + 1;
+
+        var data = try alloc.alloc(u8, @intCast(usize, self.base.length) - 1);
+        var strm = std.io.fixedBufferStream(data);
+        const wr = strm.writer();
+
+        try wr.writeIntBig(i32, self.chunk_x);
+        try wr.writeIntBig(i32, self.chunk_z);
+
+        self.base.data = data;
+
+        return self.base;
+    }
+
+    pub fn deinit(self: *S2CUnloadChunkPacket, alloc: *Allocator) void {
+        alloc.destroy(self);
+    }
+};
+
 // s2c | keep alive packet | 0x1f
 pub const S2CKeepAlivePacket = struct {
     base: *Packet,
@@ -56,7 +129,7 @@ pub const S2CKeepAlivePacket = struct {
 pub const S2CChunkDataPacket = struct {
     base: *Packet,
 
-    chunk: world.chunk.Chunk = undefined,
+    chunk: *world.chunk.Chunk = undefined,
     full_chunk: bool = true,
 
     pub fn init(alloc: *Allocator) !*S2CChunkDataPacket {
@@ -73,9 +146,9 @@ pub const S2CChunkDataPacket = struct {
         self.base.id = 0x20;
         self.base.read_write = true;
 
-        var buf = try alloc.alloc(u8, 2097151);
-        var strm = std.io.fixedBufferStream(buf);
-        const wr = strm.writer();
+        var array_list = try std.ArrayList(u8).initCapacity(alloc, 4096);
+        defer array_list.deinit();
+        const wr = array_list.writer();
 
         try wr.writeIntBig(i32, self.chunk.x);
         try wr.writeIntBig(i32, self.chunk.z);
@@ -124,11 +197,11 @@ pub const S2CChunkDataPacket = struct {
                 try cs_wr.writeIntBig(i64, @bitCast(i64, long));
             }
         }
-        try utils.writeByteArray(wr, cs_data.toOwnedSlice());
+        try utils.writeByteArray(wr, cs_data.items);
 
         try utils.writeVarInt(wr, 0);
 
-        self.base.data = alloc.shrink(buf, strm.pos);
+        self.base.data = array_list.toOwnedSlice();
         self.base.length = @intCast(i32, self.base.data.len) + 1;
 
         return self.base;
@@ -293,6 +366,45 @@ pub const S2CHeldItemChangePacket = struct {
     }
 
     pub fn deinit(self: *S2CHeldItemChangePacket, alloc: *Allocator) void {
+        alloc.destroy(self);
+    }
+};
+
+// s2c | update view position packet | 0x1c
+pub const S2CUpdateViewPositionPacket = struct {
+    base: *Packet,
+
+    chunk_x: i32 = 0,
+    chunk_z: i32 = 0,
+
+    pub fn init(alloc: *Allocator) !*S2CUpdateViewPositionPacket {
+        const base = try Packet.init(alloc);
+
+        const packet = try alloc.create(S2CUpdateViewPositionPacket);
+        packet.* = S2CUpdateViewPositionPacket{
+            .base = base,
+        };
+        return packet;
+    }
+
+    pub fn encode(self: *S2CUpdateViewPositionPacket, alloc: *Allocator) !*Packet {
+        self.base.id = 0x1c;
+        self.base.read_write = true;
+        self.base.length = @sizeOf(S2CUpdateViewPositionPacket) - @sizeOf(usize) + 1;
+
+        var data = try alloc.alloc(u8, @intCast(usize, self.base.length) - 1);
+        var strm = std.io.fixedBufferStream(data);
+        const wr = strm.writer();
+
+        try wr.writeIntBig(i32, self.chunk_x);
+        try wr.writeIntBig(i32, self.chunk_z);
+
+        self.base.data = data;
+
+        return self.base;
+    }
+
+    pub fn deinit(self: *S2CUpdateViewPositionPacket, alloc: *Allocator) void {
         alloc.destroy(self);
     }
 };

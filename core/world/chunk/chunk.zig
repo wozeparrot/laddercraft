@@ -11,25 +11,27 @@ pub const Chunk = struct {
     alloc: *Allocator,
 
     sections: std.AutoArrayHashMap(u8, ChunkSection),
-    block_entities: std.AutoHashMap(block.BlockPos, block.BlockEntity),
+    block_entities: std.AutoArrayHashMap(block.BlockPos, block.BlockEntity),
 
     x: i32,
     z: i32,
 
-    pub fn initEmpty(alloc: *Allocator, x: i32, z: i32) Chunk {
-        return Chunk{
+    pub fn initEmpty(alloc: *Allocator, x: i32, z: i32) !*Chunk {
+        const chunk = try alloc.create(Chunk);
+        chunk.* = Chunk{
             .alloc = alloc,
             
             .sections = std.AutoArrayHashMap(u8, ChunkSection).init(alloc),
-            .block_entities = std.AutoHashMap(block.BlockPos, block.BlockEntity).init(alloc),
+            .block_entities = std.AutoArrayHashMap(block.BlockPos, block.BlockEntity).init(alloc),
 
             .x = x,
             .z = z,
         };
+        return chunk;
     }
 
-    pub fn initFlat(alloc: *Allocator, x: i32, z: i32) !Chunk {
-        var chunk = initEmpty(alloc, x, z);
+    pub fn initFlat(alloc: *Allocator, x: i32, z: i32) !*Chunk {
+        var chunk = try initEmpty(alloc, x, z);
 
         var cy: u32 = 0;
         while (cy < 4) : (cy += 1) {
@@ -49,6 +51,8 @@ pub const Chunk = struct {
         for (self.sections.items()) |*entry| entry.value.deinit(self.alloc);
         self.sections.deinit();
         self.block_entities.deinit();
+
+        self.alloc.destroy(self);
     }
 
     pub fn getBlock(self: *Chunk, x: u32, y: u32, z: u32) block.BlockState {
@@ -84,5 +88,9 @@ pub const Chunk = struct {
             }
         }
         return highest;
+    }
+
+    pub inline fn chunkID(self: *Chunk) u64 {
+        return (@bitCast(u64, @as(i64, self.x)) << 32) | @bitCast(u32, self.z);
     }
 };

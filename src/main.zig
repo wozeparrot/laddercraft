@@ -4,12 +4,12 @@ const heap = std.heap;
 
 const pike = @import("pike");
 const zap = @import("zap");
-
-const Server = @import("server.zig").Server;
-
 pub const pike_task = zap.runtime.executor.Task;
 pub const pike_batch = zap.runtime.executor.Batch;
 pub const pike_dispatch = dispatch;
+
+const Server = @import("server.zig").Server;
+const l_config = @import("config.zig").config;
 
 inline fn dispatch(batchable: anytype, args: anytype) void {
     zap.runtime.schedule(batchable, args);
@@ -29,7 +29,7 @@ pub fn asyncMain() !void {
     var frame = async run(&notifier, &stopped);
 
     while (!stopped) {
-        try notifier.poll(1_000_000);
+        try notifier.poll(1_000);
     }
 
     try nosuspend await frame;
@@ -54,9 +54,9 @@ pub fn run(notifier: *const pike.Notifier, stopped: *bool) !void {
         event.post() catch unreachable;
     }
 
-    var server = try Server.init(&gpa.allocator, notifier, 1337);
+    var server = try Server.init(&gpa.allocator, notifier, l_config.seed);
     defer server.deinit();
 
-    try server.serve(try std.net.Address.resolveIp("0.0.0.0", 25565));
+    try server.serve(try std.net.Address.resolveIp(l_config.bind_address, l_config.bind_port));
     try signal.wait();
 }

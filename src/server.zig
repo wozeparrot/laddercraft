@@ -30,6 +30,8 @@ pub const Server = struct {
     notifier: *const Notifier,
     socket: Socket,
     current_network_id: i32,
+    holding: std.AutoArrayHashMap(*NetworkHandler, void),
+    holding_lock: std.Mutex,
 
     groups: std.AutoArrayHashMap(*Group, void),
     groups_lock: std.Mutex,
@@ -52,6 +54,8 @@ pub const Server = struct {
             .notifier = notifier,
             .socket = socket,
             .current_network_id = 0,
+            .holding = std.AutoArrayHashMap(*NetworkHandler, void).init(alloc),
+            .holding_lock = std.Mutex{},
 
             .groups = std.AutoArrayHashMap(*Group, void).init(alloc),
             .groups_lock = std.Mutex{},
@@ -69,11 +73,19 @@ pub const Server = struct {
             log.err("{} while awaiting server frame!", .{@errorName(err)});
         };
 
-        const held = self.groups_lock.acquire();
+        const groups_held = self.groups_lock.acquire();
         for (self.groups.items()) |entry| {
             entry.key.deinit();
         }
+        groups_held.release();
         self.groups.deinit();
+
+        const holding_held = self.holding_lock.acquire();
+        for (self.holding.items()) |entry| {
+            entry.key.deinit();
+        }
+        holding_held.release();
+        self.holding.deinit();
     }
 
     pub fn serve(self: *Server, address: net.Address) !void {
@@ -103,6 +115,12 @@ pub const Server = struct {
                 continue;
             };
             self.current_network_id += 1;
+            
+            // add to holding group
+            const held = self.holding_lock.acquire();
+            try self.holding.put(network_handler, {});
+            held.release();
+
             network_handler.start(self) catch |err| {
                 conn.socket.deinit();
                 continue;

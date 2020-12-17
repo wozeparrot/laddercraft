@@ -22,8 +22,12 @@ pub const Player = struct {
 
     network_handler: *NetworkHandler,
     player: lc_player.Player,
+    player_lock: std.Mutex,
 
     keep_alive: std.time.Timer,
+
+    loaded_chunks: std.AutoArrayHashMap(u64, void),
+    loaded_chunks_lock: std.Mutex,
 
     pub fn init(alloc: *Allocator, network_handler: *NetworkHandler) !*Player {
         const player = try alloc.create(Player);
@@ -33,20 +37,43 @@ pub const Player = struct {
             .group = null,
 
             .network_handler = network_handler,
-            .player = undefined,
+            .player = try lc_player.Player.init(alloc),
+            .player_lock = std.Mutex{},
 
             .keep_alive = try std.time.Timer.start(),
+
+            .loaded_chunks = std.AutoArrayHashMap(u64, void).init(alloc),
+            .loaded_chunks_lock = std.Mutex{},
         };
         return player;
     }
 
     pub fn deinit(self: *Player) void {
-        self.network_handler.deinit();
+        const held = self.loaded_chunks_lock.acquire();
+        self.loaded_chunks.deinit();
+        held.release();
 
+        self.alloc.free(self.player.username);
+        const player_held = self.player_lock.acquire();
+        self.player.deinit();
+        player_held.release();
+
+        self.network_handler.socket.deinit();
+
+        while (self.network_handler.read_packets.get()) |node| {
+            node.data.deinit(self.alloc);
+            self.alloc.destroy(node);
+        }
+        while (self.network_handler.write_packets.get()) |node| {
+            node.data.deinit(self.alloc);
+            self.alloc.destroy(node);
+        }
+
+        self.alloc.destroy(self.network_handler);
         self.alloc.destroy(self);
     }
 
-    pub fn start(self: *Player, notifier: *const Notifier) !void {      
+    pub fn start(self: *Player, notifier: *const Notifier) !void {
         try zap.runtime.spawn(.{}, Player.run, .{self, notifier});
     }
 
@@ -57,15 +84,21 @@ pub const Player = struct {
     }
 
     pub fn _run(self: *Player, notifier: *const Notifier) !void {
-        var pkt = try packet.S2CKeepAlivePacket.init(&self.network_handler.arena.allocator);
-        defer pkt.deinit(&self.network_handler.arena.allocator);
+        zap.runtime.yield();
+
         while (self.network_handler.is_alive.load(.SeqCst)) {
-            if (self.keep_alive.read() > std.time.ns_per_s) {
+            zap.runtime.yield();
+            
+            if (self.keep_alive.read() > std.time.ns_per_s * 6) {
+                var pkt = try packet.S2CKeepAlivePacket.init(self.alloc);
+                defer pkt.deinit(self.alloc);
                 pkt.id = 0;
                 self.network_handler.keep_alive_id.set(pkt.id);
-                try self.network_handler.sendPacket(try pkt.encode(&self.network_handler.arena.allocator));
-                // log.debug("{}", .{pkt});
+                try self.network_handler.sendPacket(try pkt.encode(self.alloc));
+                self.keep_alive.reset();
             }
+
+            try self.group.?.updatePlayerChunks(self);
         }
 
         if (self.group) |group| {

@@ -25,7 +25,6 @@ const Server = @import("../server.zig").Server;
 
 pub const NetworkHandler = struct {
     alloc: *Allocator,
-    arena: std.heap.ArenaAllocator,
     network_id: i32,
 
     socket: Socket,
@@ -43,7 +42,6 @@ pub const NetworkHandler = struct {
         const network_handler = try alloc.create(NetworkHandler);
         network_handler.* = .{
             .alloc = alloc,
-            .arena = std.heap.ArenaAllocator.init(alloc),
             .network_id = network_id,
 
             .socket = socket,
@@ -60,23 +58,27 @@ pub const NetworkHandler = struct {
     }
 
     pub fn deinit(self: *NetworkHandler) void {
-        self.is_alive.store(false, .SeqCst);
-
         self.socket.deinit();
-        self.arena.deinit();
+
+        while (self.read_packets.get()) |node| {
+            node.data.deinit(self.alloc);
+            self.alloc.destroy(node);
+        }
+        while (self.write_packets.get()) |node| {
+            node.data.deinit(self.alloc);
+            self.alloc.destroy(node);
+        }
 
         self.alloc.destroy(self);
     }
 
     pub fn sendPacket(self: *NetworkHandler, pkt: *packet.Packet) !void {
-        const node = try self.arena.allocator.create(std.atomic.Queue(*packet.Packet).Node);
+        const node = try self.alloc.create(std.atomic.Queue(*packet.Packet).Node);
         node.* = .{ .data = pkt };
         self.write_packets.put(node);
     }
 
     pub fn start(self: *NetworkHandler, server: *Server) !void {
-        self.is_alive.store(true, .SeqCst);
-
         // register socket to notifier
         try self.socket.registerTo(server.notifier);
 
@@ -94,8 +96,12 @@ pub const NetworkHandler = struct {
     }
 
     pub fn _read(self: *NetworkHandler, server: *Server) !void {
+        zap.runtime.yield();
+
         while (self.is_alive.load(.SeqCst)) {
-            const base_pkt = packet.Packet.decode(&self.arena.allocator, self.reader) catch |err| switch (err) {
+            zap.runtime.yield();
+
+            const base_pkt = packet.Packet.decode(self.alloc, self.reader) catch |err| switch (err) {
                 error.SocketNotListening,
                 error.OperationCancelled,
                 error.EndOfStream,
@@ -103,14 +109,14 @@ pub const NetworkHandler = struct {
                 else => return err,
             };
 
-            const node = try self.arena.allocator.create(std.atomic.Queue(*packet.Packet).Node);
+            const node = try self.alloc.create(std.atomic.Queue(*packet.Packet).Node);
             node.* = .{ .data = base_pkt };
             self.read_packets.put(node);
         }
 
         // connection is dead
-        self.is_alive.store(false, .SeqCst);
-        if (self.player == null) self.deinit();
+        if(server.is_alive.load(.SeqCst)) self.is_alive.store(false, .SeqCst);
+        if(server.is_alive.load(.SeqCst) and self.player == null) self.deinit();
     }
 
     pub fn handle(self: *NetworkHandler, server: *Server) void {
@@ -120,47 +126,81 @@ pub const NetworkHandler = struct {
     }
 
     pub fn _handle(self: *NetworkHandler, server: *Server) !void {
+        zap.runtime.yield();
+
         // check valid handshake and login
-        if (self.handleHandshake(server) catch |err| {
+        const handshake_return = self.handleHandshake(server) catch |err| {
             self.is_alive.store(false, .SeqCst);
             return;
-        }) {
+        };
+        if (handshake_return.completed) {
+            // remove from server holding
+            const held = server.holding_lock.acquire();
+            server.holding.removeAssertDiscard(self);
+            held.release();
+
             // create player
             self.player = try Player.init(self.alloc, self);
+            // set player uuid and username
+            self.player.?.player.base.uuid = handshake_return.uuid;
+            self.player.?.player.username = handshake_return.username;
+            // add player to group and start player
             try server.findBestGroup(self.player.?);
             try self.player.?.start(server.notifier);
 
             // send join game packets
             try self.transistionToPlay(server);
 
-            // main loop
+            // main packet handling loop
             while (self.is_alive.load(.SeqCst)) {
+                zap.runtime.yield();
+
                 while (self.read_packets.get()) |node| {
                     const base_pkt = node.data;
 
                     // handle a play packet
                     switch (base_pkt.id) {
+                        0x12 => {
+                            const player_held = self.player.?.player_lock.acquire();
+                            defer player_held.release();
+                            const pkt = try packet.C2SPlayerPositionPacket.decode(self.alloc, base_pkt);
+                            self.player.?.player.base.last_pos = self.player.?.player.base.pos;
+                            self.player.?.player.base.pos = zlm.vec3(pkt.x, pkt.y, pkt.z);
+                            self.player.?.player.base.on_ground = pkt.on_ground;
+                            pkt.deinit(self.alloc);
+                            base_pkt.deinit(self.alloc);
+                            self.alloc.destroy(node);
+                        },
                         else => {
                             log.err("Unknown play packet: {}", .{base_pkt});
-                            base_pkt.deinit(&self.arena.allocator);
-                            self.arena.allocator.destroy(node);
+                            base_pkt.deinit(self.alloc);
+                            self.alloc.destroy(node);
                         },
+                    }
+
+                    while (self.write_packets.get()) |wnode| {
+                        const wbase_pkt = wnode.data;
+
+                        try wbase_pkt.encode(self.alloc, self.writer);
+                        wbase_pkt.deinit(self.alloc);
+                        self.alloc.destroy(wnode);
                     }
                 }
 
                 while (self.write_packets.get()) |node| {
                     const base_pkt = node.data;
 
-                    try base_pkt.encode(&self.arena.allocator, self.writer);
-                    base_pkt.deinit(&self.arena.allocator);
-                    self.arena.allocator.destroy(node);
+                    try base_pkt.encode(self.alloc, self.writer);
+                    base_pkt.deinit(self.alloc);
+                    self.alloc.destroy(node);
                 }
             }
         } else self.is_alive.store(false, .SeqCst);
     }
 
     // handle handshake and login before creating a player (must write packets manually)
-    fn handleHandshake(self: *NetworkHandler, server: *Server) !bool {
+    const HandshakeReturnData = struct { completed: bool, uuid: UUID, username: []const u8 };
+    fn handleHandshake(self: *NetworkHandler, server: *Server) !HandshakeReturnData {
         // current connection state
         var conn_state: network.client.ConnectionState = .handshake;
 
@@ -168,15 +208,15 @@ pub const NetworkHandler = struct {
         while (self.is_alive.load(.SeqCst)) {
             while (self.read_packets.get()) |node| {
                 const base_pkt = node.data;
-                defer self.arena.allocator.destroy(node);
-                defer base_pkt.deinit(&self.arena.allocator);
+                defer self.alloc.destroy(node);
+                defer base_pkt.deinit(self.alloc);
 
                 switch (base_pkt.id) {
                     0x00 => switch (conn_state) {
                         .handshake => {
                             // decode handshake packet
-                            const pkt = try packet.C2SHandshakePacket.decode(&self.arena.allocator, base_pkt);
-                            defer pkt.deinit(&self.arena.allocator);
+                            const pkt = try packet.C2SHandshakePacket.decode(self.alloc, base_pkt);
+                            defer pkt.deinit(self.alloc);
                             log.debug("{}", .{pkt});
 
                             if (pkt.next_state == .login) {
@@ -185,15 +225,15 @@ pub const NetworkHandler = struct {
                                     // login state
                                     conn_state = .login;
                                 } else {
-                                    const spkt = try packet.S2CLoginDisconnectPacket.init(&self.arena.allocator);
-                                    defer spkt.deinit(&self.arena.allocator);
+                                    const spkt = try packet.S2CLoginDisconnectPacket.init(self.alloc);
+                                    defer spkt.deinit(self.alloc);
                                     spkt.reason = .{ .text = "Protocol version mismatch!" };
-                                    const bspkt = try spkt.encode(&self.arena.allocator);
-                                    defer bspkt.deinit(&self.arena.allocator);
-                                    try bspkt.encode(&self.arena.allocator, self.writer);
+                                    const bspkt = try spkt.encode(self.alloc);
+                                    defer bspkt.deinit(self.alloc);
+                                    try bspkt.encode(self.alloc, self.writer);
                                     log.debug("{}", .{spkt});
 
-                                    return false;
+                                    return HandshakeReturnData{ .completed = false, .uuid = undefined, .username = undefined };
                                 }
                             } else {
                                 conn_state = .status;
@@ -201,444 +241,93 @@ pub const NetworkHandler = struct {
                         },
                         .login => {
                             // decode login start packet
-                            const pkt = try packet.C2SLoginStartPacket.decode(&self.arena.allocator, base_pkt);
-                            defer pkt.deinit(&self.arena.allocator);
+                            const pkt = try packet.C2SLoginStartPacket.decode(self.alloc, base_pkt);
+                            defer pkt.deinit(self.alloc);
                             log.debug("{}", .{pkt});
 
                             // send login success packet
-                            const spkt = try packet.S2CLoginSuccessPacket.init(&self.arena.allocator);
-                            defer spkt.deinit(&self.arena.allocator);
+                            const spkt = try packet.S2CLoginSuccessPacket.init(self.alloc);
+                            defer spkt.deinit(self.alloc);
                             spkt.uuid = UUID.new(&std.rand.DefaultPrng.init(@bitCast(u64, std.time.timestamp())).random);
                             spkt.username = pkt.username;
-                            const bspkt = try spkt.encode(&self.arena.allocator);
-                            defer bspkt.deinit(&self.arena.allocator);
-                            try bspkt.encode(&self.arena.allocator, self.writer);
+                            const bspkt = try spkt.encode(self.alloc);
+                            defer bspkt.deinit(self.alloc);
+                            try bspkt.encode(self.alloc, self.writer);
                             log.debug("{}", .{spkt});
 
-                            return true;
+                            const username = try self.alloc.dupe(u8, pkt.username);
+                            return HandshakeReturnData{
+                                .completed = true,
+                                .uuid = spkt.uuid,
+                                .username = username,
+                            };
                         },
                         .status => {
-                            return false;
+                            return HandshakeReturnData{ .completed = false, .uuid = undefined, .username = undefined };
                         },
                         else => {
-                            return false;
+                            return HandshakeReturnData{ .completed = false, .uuid = undefined, .username = undefined };
                         },
                     },
                     else => {
                         log.err("Unknown handshake packet: {}", .{base_pkt});
-                        return false;
+                        return HandshakeReturnData{ .completed = false, .uuid = undefined, .username = undefined };
                     },
                 }
             }
         }
-        return false;
+        return HandshakeReturnData{ .completed = false, .uuid = undefined, .username = undefined };
     }
 
     fn transistionToPlay(self: *NetworkHandler, server: *Server) !void {
         // send join game packet
-        const spkt = try packet.S2CJoinGamePacket.init(&self.arena.allocator);
+        const spkt = try packet.S2CJoinGamePacket.init(self.alloc);
         spkt.entity_id = self.network_id;
         spkt.gamemode = .{ .mode = .creative, .hardcore = false };
-        spkt.dimension_codec = nbt.Tag{
-            .compound = .{
-                .name = "",
-                .payload = &[_]nbt.Tag{
-                    .{
-                        .compound = .{
-                            .name = "minecraft:dimension_type",
-                            .payload = &[_]nbt.Tag{
-                                .{
-                                    .string = .{
-                                        .name = "type",
-                                        .payload = "minecraft:dimension_type",
-                                    },
-                                },
-                                .{
-                                    .list = .{
-                                        .name = "value",
-                                        .payload = &[_]nbt.Tag{
-                                            .{
-                                                .compound = .{
-                                                    .name = "",
-                                                    .payload = &[_]nbt.Tag{
-                                                        .{
-                                                            .string = .{
-                                                                .name = "name",
-                                                                .payload = "minecraft:overworld",
-                                                            },
-                                                        },
-                                                        .{
-                                                            .byte = .{
-                                                                .name = "id",
-                                                                .payload = 0,
-                                                            },
-                                                        },
-                                                        .{
-                                                            .compound = .{
-                                                                .name = "element",
-                                                                .payload = &[_]nbt.Tag{
-                                                                    .{
-                                                                        .byte = .{
-                                                                            .name = "piglin_safe",
-                                                                            .payload = 0,
-                                                                        },
-                                                                    },
-                                                                    .{
-                                                                        .byte = .{
-                                                                            .name = "natural",
-                                                                            .payload = 1,
-                                                                        },
-                                                                    },
-                                                                    .{
-                                                                        .float = .{
-                                                                            .name = "ambient_light",
-                                                                            .payload = 0,
-                                                                        },
-                                                                    },
-                                                                    .{
-                                                                        .string = .{
-                                                                            .name = "infiniburn",
-                                                                            .payload = "minecraft:infiniburn_overworld",
-                                                                        },
-                                                                    },
-                                                                    .{
-                                                                        .byte = .{
-                                                                            .name = "respawn_anchor_works",
-                                                                            .payload = 0,
-                                                                        },
-                                                                    },
-                                                                    .{
-                                                                        .byte = .{
-                                                                            .name = "has_skylight",
-                                                                            .payload = 1,
-                                                                        },
-                                                                    },
-                                                                    .{
-                                                                        .byte = .{
-                                                                            .name = "bed_works",
-                                                                            .payload = 1,
-                                                                        },
-                                                                    },
-                                                                    .{
-                                                                        .string = .{
-                                                                            .name = "effects",
-                                                                            .payload = "minecraft:overworld",
-                                                                        },
-                                                                    },
-                                                                    .{
-                                                                        .byte = .{
-                                                                            .name = "has_raids",
-                                                                            .payload = 1,
-                                                                        },
-                                                                    },
-                                                                    .{
-                                                                        .int = .{
-                                                                            .name = "logical_height",
-                                                                            .payload = 256,
-                                                                        },
-                                                                    },
-                                                                    .{
-                                                                        .float = .{
-                                                                            .name = "coordinate_scale",
-                                                                            .payload = 1.0,
-                                                                        },
-                                                                    },
-                                                                    .{
-                                                                        .byte = .{
-                                                                            .name = "ultrawarm",
-                                                                            .payload = 0,
-                                                                        },
-                                                                    },
-                                                                    .{
-                                                                        .byte = .{
-                                                                            .name = "has_ceiling",
-                                                                            .payload = 0,
-                                                                        },
-                                                                    },
-                                                                },
-                                                            },
-                                                        },
-                                                    },
-                                                },
-                                            },
-                                        },
-                                    },
-                                },
-                            },
-                        },
-                    },
-                    .{
-                        .compound = .{
-                            .name = "minecraft:worldgen/biome",
-                            .payload = &[_]nbt.Tag{
-                                .{
-                                    .string = .{
-                                        .name = "type",
-                                        .payload = "minecraft:worldgen/biome",
-                                    },
-                                },
-                                .{
-                                    .list = .{
-                                        .name = "value",
-                                        .payload = &[_]nbt.Tag{
-                                            .{
-                                                .compound = .{
-                                                    .name = "",
-                                                    .payload = &[_]nbt.Tag{
-                                                        .{
-                                                            .string = .{
-                                                                .name = "name",
-                                                                .payload = "minecraft:plains",
-                                                            },
-                                                        },
-                                                        .{
-                                                            .int = .{
-                                                                .name = "id",
-                                                                .payload = 0,
-                                                            },
-                                                        },
-                                                        .{
-                                                            .compound = .{
-                                                                .name = "element",
-                                                                .payload = &[_]nbt.Tag{
-                                                                    .{
-                                                                        .string = .{
-                                                                            .name = "precipitation",
-                                                                            .payload = "rain",
-                                                                        },
-                                                                    },
-                                                                    .{
-                                                                        .compound = .{
-                                                                            .name = "effects",
-                                                                            .payload = &[_]nbt.Tag{
-                                                                                .{
-                                                                                    .int = .{
-                                                                                        .name = "sky_color",
-                                                                                        .payload = 7907327,
-                                                                                    },
-                                                                                },
-                                                                                .{
-                                                                                    .int = .{
-                                                                                        .name = "water_fog_color",
-                                                                                        .payload = 329011,
-                                                                                    },
-                                                                                },
-                                                                                .{
-                                                                                    .int = .{
-                                                                                        .name = "fog_color",
-                                                                                        .payload = 12638463,
-                                                                                    },
-                                                                                },
-                                                                                .{
-                                                                                    .int = .{
-                                                                                        .name = "water_color",
-                                                                                        .payload = 4159204,
-                                                                                    },
-                                                                                },
-                                                                                .{
-                                                                                    .compound = .{
-                                                                                        .name = "mood_sound",
-                                                                                        .payload = &[_]nbt.Tag{
-                                                                                            .{
-                                                                                                .int = .{
-                                                                                                    .name = "tick_delay",
-                                                                                                    .payload = 6000,
-                                                                                                },
-                                                                                            },
-                                                                                            .{
-                                                                                                .double = .{
-                                                                                                    .name = "offset",
-                                                                                                    .payload = 2.0,
-                                                                                                },
-                                                                                            },
-                                                                                            .{
-                                                                                                .string = .{
-                                                                                                    .name = "sound",
-                                                                                                    .payload = "minecraft:ambient.cave",
-                                                                                                },
-                                                                                            },
-                                                                                            .{
-                                                                                                .int = .{
-                                                                                                    .name = "block_search_extent",
-                                                                                                    .payload = 8,
-                                                                                                },
-                                                                                            },
-                                                                                        },
-                                                                                    },
-                                                                                },
-                                                                            },
-                                                                        },
-                                                                    },
-                                                                    .{
-                                                                        .float = .{
-                                                                            .name = "depth",
-                                                                            .payload = 0.125,
-                                                                        },
-                                                                    },
-                                                                    .{
-                                                                        .float = .{
-                                                                            .name = "temperature",
-                                                                            .payload = 0.8,
-                                                                        },
-                                                                    },
-                                                                    .{
-                                                                        .float = .{
-                                                                            .name = "scale",
-                                                                            .payload = 0.05,
-                                                                        },
-                                                                    },
-                                                                    .{
-                                                                        .float = .{
-                                                                            .name = "downfall",
-                                                                            .payload = 0.4,
-                                                                        },
-                                                                    },
-                                                                    .{
-                                                                        .string = .{
-                                                                            .name = "category",
-                                                                            .payload = "plains",
-                                                                        },
-                                                                    },
-                                                                },
-                                                            },
-                                                        },
-                                                    },
-                                                },
-                                            },
-                                        },
-                                    },
-                                },
-                            },
-                        },
-                    },
-                },
-            },
-        };
-        spkt.dimension = nbt.Tag{
-            .compound = .{
-                .name = "",
-                .payload = &[_]nbt.Tag{
-                    .{
-                        .byte = .{
-                            .name = "piglin_safe",
-                            .payload = 0,
-                        },
-                    },
-                    .{
-                        .byte = .{
-                            .name = "natural",
-                            .payload = 1,
-                        },
-                    },
-                    .{
-                        .float = .{
-                            .name = "ambient_light",
-                            .payload = 0,
-                        },
-                    },
-                    .{
-                        .string = .{
-                            .name = "infiniburn",
-                            .payload = "minecraft:infiniburn_overworld",
-                        },
-                    },
-                    .{
-                        .byte = .{
-                            .name = "respawn_anchor_works",
-                            .payload = 0,
-                        },
-                    },
-                    .{
-                        .byte = .{
-                            .name = "has_skylight",
-                            .payload = 1,
-                        },
-                    },
-                    .{
-                        .byte = .{
-                            .name = "bed_works",
-                            .payload = 1,
-                        },
-                    },
-                    .{
-                        .string = .{
-                            .name = "effects",
-                            .payload = "minecraft:overworld",
-                        },
-                    },
-                    .{
-                        .byte = .{
-                            .name = "has_raids",
-                            .payload = 1,
-                        },
-                    },
-                    .{
-                        .int = .{
-                            .name = "logical_height",
-                            .payload = 256,
-                        },
-                    },
-                    .{
-                        .float = .{
-                            .name = "coordinate_scale",
-                            .payload = 1.0,
-                        },
-                    },
-                    .{
-                        .byte = .{
-                            .name = "ultrawarm",
-                            .payload = 0,
-                        },
-                    },
-                    .{
-                        .byte = .{
-                            .name = "has_ceiling",
-                            .payload = 0,
-                        },
-                    },
-                },
-            },
-        };
-        try self.sendPacket(try spkt.encode(&self.arena.allocator));
+        spkt.dimension_codec = network.BASIC_DIMENSION_CODEC;
+        spkt.dimension = network.BASIC_DIMENSION;
+        try self.sendPacket(try spkt.encode(self.alloc));
         log.debug("{}", .{spkt});
-        spkt.deinit(&self.arena.allocator);
+        spkt.deinit(self.alloc);
 
         // send chunks
-        var chunk = try world.chunk.Chunk.initFlat(&self.arena.allocator, 0, 0);
-        defer chunk.deinit();
-        var cx: i32 = -1;
-        while (cx <= 1) : (cx += 1) {
-            var cz: i32 = -1;
-            while (cz <= 1) : (cz += 1) {
-                chunk.x = cx;
-                chunk.z = cz;
-                const spkt2 = try packet.S2CChunkDataPacket.init(&self.arena.allocator);
-                spkt2.chunk = chunk;
-                spkt2.full_chunk = true;
-                try self.sendPacket(try spkt2.encode(&self.arena.allocator));
-                log.debug("{}", .{spkt2});
-                spkt2.deinit(&self.arena.allocator);
-            }
-        }
+        // var chunk = try world.chunk.Chunk.initFlat(self.alloc, 0, 0);
+        // defer chunk.deinit();
+        // var cx: i32 = -1;
+        // while (cx <= 1) : (cx += 1) {
+        //     var cz: i32 = -1;
+        //     while (cz <= 1) : (cz += 1) {
+        //         chunk.x = cx;
+        //         chunk.z = cz;
+        //         const spkt2 = try packet.S2CChunkDataPacket.init(self.alloc);
+        //         spkt2.chunk = chunk;
+        //         spkt2.full_chunk = true;
+        //         try self.sendPacket(try spkt2.encode(self.alloc));
+        //         log.debug("{}", .{spkt2});
+        //         spkt2.deinit(self.alloc);
+        //     }
+        // }
+        
+        // try self.player.?.group.?.updatePlayerChunks(self.player.?);
 
         // send player position look packet
-        const spkt3 = try packet.S2CPlayerPositionLookPacket.init(&self.arena.allocator);
+        const spkt3 = try packet.S2CPlayerPositionLookPacket.init(self.alloc);
         spkt3.pos = zlm.vec3(0, 63, 0);
-        try self.sendPacket(try spkt3.encode(&self.arena.allocator));
+        try self.sendPacket(try spkt3.encode(self.alloc));
         log.debug("{}", .{spkt3});
-        spkt3.deinit(&self.arena.allocator);
+        spkt3.deinit(self.alloc);
 
         // send spawn position packet
-        const spkt4 = try packet.S2CSpawnPositionPacket.init(&self.arena.allocator);
+        const spkt4 = try packet.S2CSpawnPositionPacket.init(self.alloc);
         spkt4.pos = zlm.vec3(0, 63, 0);
-        try self.sendPacket(try spkt4.encode(&self.arena.allocator));
+        try self.sendPacket(try spkt4.encode(self.alloc));
         log.debug("{}", .{spkt4});
-        spkt4.deinit(&self.arena.allocator);
+        spkt4.deinit(self.alloc);
 
         // send hand slot packet
-        const spkt5 = try packet.S2CHeldItemChangePacket.init(&self.arena.allocator);
-        try self.sendPacket(try spkt5.encode(&self.arena.allocator));
+        const spkt5 = try packet.S2CHeldItemChangePacket.init(self.alloc);
+        try self.sendPacket(try spkt5.encode(self.alloc));
         log.debug("{}", .{spkt5});
-        spkt5.deinit(&self.arena.allocator);
+        spkt5.deinit(self.alloc);
     }
 };
