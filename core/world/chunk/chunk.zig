@@ -58,7 +58,7 @@ pub const Chunk = struct {
     pub fn getBlock(self: *Chunk, x: u32, y: u32, z: u32) block.BlockState {
         const section_y = @intCast(u8, (y / 16));
         if (self.sections.get(section_y)) |*section| {
-            return section.getBlock(x, y, z);
+            return section.getBlock(x, @mod(y, 16), z);
         } else {
             return 0;
         }
@@ -67,10 +67,10 @@ pub const Chunk = struct {
     pub fn setBlock(self: *Chunk, x: u32, y: u32, z: u32, block_state: block.BlockState) !bool {
         const section_y = @intCast(u8, (y / 16));
         if (self.sections.get(section_y)) |*section| {
-            return section.setBlock(x, y, z, block_state);
+            return section.setBlock(x, @mod(y, 16), z, block_state);
         } else if (block_state != 0) {
             var section = try ChunkSection.init(self.alloc);
-            _ = section.setBlock(x, y, z, block_state);
+            _ = section.setBlock(x, @mod(y, 16), z, block_state);
             try self.sections.put(section_y, section);
             return true;
         } else return false;

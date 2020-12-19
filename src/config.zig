@@ -5,7 +5,7 @@ pub const config: Config = .{
     .bind_address = "0.0.0.0",
     .bind_port = 25565,
 
-    .view_distance = 8,
+    .view_distance = 4,
     .seed = 1337,
 
     .max_group_size = 10,

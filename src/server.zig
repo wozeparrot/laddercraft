@@ -10,6 +10,7 @@ const pike = @import("pike");
 const Socket = pike.Socket;
 const Notifier = pike.Notifier;
 const zap = @import("zap");
+const sync = @import("sync.zig");
 
 const ladder_core = @import("ladder_core");
 const lc_packet = ladder_core.network.packet;
@@ -31,10 +32,10 @@ pub const Server = struct {
     socket: Socket,
     current_network_id: i32,
     holding: std.AutoArrayHashMap(*NetworkHandler, void),
-    holding_lock: std.Mutex,
+    holding_lock: sync.Mutex,
 
     groups: std.AutoArrayHashMap(*Group, void),
-    groups_lock: std.Mutex,
+    groups_lock: sync.Mutex,
 
     is_alive: std.atomic.Bool,
 
@@ -55,10 +56,10 @@ pub const Server = struct {
             .socket = socket,
             .current_network_id = 0,
             .holding = std.AutoArrayHashMap(*NetworkHandler, void).init(alloc),
-            .holding_lock = std.Mutex{},
+            .holding_lock = sync.Mutex{},
 
             .groups = std.AutoArrayHashMap(*Group, void).init(alloc),
-            .groups_lock = std.Mutex{},
+            .groups_lock = sync.Mutex{},
 
             .is_alive = std.atomic.Bool.init(true),
         };

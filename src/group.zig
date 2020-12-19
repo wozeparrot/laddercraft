@@ -6,10 +6,12 @@ const log = std.log;
 const pike = @import("pike");
 const Notifier = pike.Notifier;
 const zap = @import("zap");
+const sync = @import("sync.zig");
 
 const ladder_core = @import("ladder_core");
 const network = ladder_core.network;
 const packet = network.packet;
+const lc_block = ladder_core.world.block;
 const Chunk = ladder_core.world.chunk.Chunk;
 
 const Server = @import("server.zig").Server;
@@ -23,11 +25,11 @@ pub const Group = struct {
     notifier: *const Notifier,
 
     players: std.AutoArrayHashMap(*Player, void),
-    players_lock: std.Mutex,
+    players_lock: sync.Mutex,
     player_count: std.atomic.Int(u32),
 
     chunks: std.AutoArrayHashMap(u64, *Chunk),
-    chunks_lock: std.Mutex,
+    chunks_lock: sync.Mutex,
 
     is_alive: std.atomic.Bool,
 
@@ -40,11 +42,11 @@ pub const Group = struct {
             .notifier = notifier,
 
             .players = std.AutoArrayHashMap(*Player, void).init(alloc),
-            .players_lock = std.Mutex{},
+            .players_lock = sync.Mutex{},
             .player_count = std.atomic.Int(u32).init(0),
 
             .chunks = std.AutoArrayHashMap(u64, *Chunk).init(alloc),
-            .chunks_lock = std.Mutex{},
+            .chunks_lock = sync.Mutex{},
 
             .is_alive = std.atomic.Bool.init(true),
         };
@@ -84,7 +86,7 @@ pub const Group = struct {
     pub fn _run(self: *Group) !void {
         zap.runtime.yield();
 
-        while (self.is_alive.load(.SeqCst)) {
+        while (self.is_alive.load(.Monotonic)) {
             zap.runtime.yield();
 
             if (self.player_count.get() == 0) {
@@ -116,21 +118,43 @@ pub const Group = struct {
         _ = self.players.remove(player);
     }
 
+    pub fn sendPacketToAll(self: *Group, pkt: *packet.Packet) !void {
+        const held = self.players_lock.acquire();
+        defer held.release();
+        for (self.players.items()) |entry| {
+            try entry.key.network_handler.sendPacket(try pkt.copy(self.alloc));
+        }
+        pkt.deinit(self.alloc);
+    }
+
     pub fn updatePlayerChunks(self: *Group, player: *Player) !void {
         var needed_chunks = std.ArrayList(u64).init(self.alloc);
         defer needed_chunks.deinit();
+        var loaded_chunks = std.ArrayList(u64).init(self.alloc);
+        defer loaded_chunks.deinit();
 
         const inner_player_held = player.player_lock.acquire();
         const chunk_x = player.player.chunkX();
         const chunk_z = player.player.chunkZ();
-        const last_chunk_x = player.player.lastChunkX();
-        const last_chunk_z = player.player.lastChunkZ();
+        const last_chunk_x = player.player.last_chunk_x;
+        const last_chunk_z = player.player.last_chunk_z;
+        
+        if (!(chunk_x == last_chunk_x and chunk_z == last_chunk_z)) {
+            player.player.last_chunk_x = chunk_x;
+            player.player.last_chunk_z = chunk_z;
+
+            const pkt = try packet.S2CUpdateViewPositionPacket.init(self.alloc);
+            pkt.chunk_x = chunk_x;
+            pkt.chunk_z = chunk_z;
+            try player.network_handler.sendPacket(try pkt.encode(self.alloc));
+            pkt.deinit(self.alloc);
+        }
         inner_player_held.release();
 
         var x: i32 = chunk_x - @as(i32, l_config.view_distance);
-        while (x < chunk_x + @as(i32, l_config.view_distance)) : (x += 1) {
+        while (x <= chunk_x + @as(i32, l_config.view_distance)) : (x += 1) {
             var z: i32 = chunk_z - @as(i32, l_config.view_distance);
-            while (z < chunk_z + @as(i32, l_config.view_distance)) : (z += 1) {
+            while (z <= chunk_z + @as(i32, l_config.view_distance)) : (z += 1) {
                 zap.runtime.yield();
 
                 const held = player.loaded_chunks_lock.acquire();
@@ -139,50 +163,66 @@ pub const Group = struct {
                 if (!player.loaded_chunks.contains(chunk_id)) {
                     try needed_chunks.append(chunk_id);
                 } else {
-                    // player.loaded_chunks.removeAssertDiscard(chunk_id);
+                    try loaded_chunks.append(chunk_id);
+                    player.loaded_chunks.removeAssertDiscard(chunk_id);
                 }
             }
         }
 
-        // const chunks_held = player.loaded_chunks_lock.acquire();
-        // for (player.loaded_chunks.items()) |entry| {           
-        //     const pkt = try packet.S2CUnloadChunkPacket.init(self.alloc);
-        //     pkt.chunk_x = @bitCast(i32, @truncate(u32, entry.key >> 32));
-        //     pkt.chunk_z = @bitCast(i32, @truncate(u32, entry.key));
-        //     try player.network_handler.sendPacket(try pkt.encode(self.alloc));
-        //     pkt.deinit(self.alloc);
-        //     player.loaded_chunks.removeAssertDiscard(entry.key);
-        // }
-        // chunks_held.release();
+        const chunks_held = player.loaded_chunks_lock.acquire();
+        for (player.loaded_chunks.items()) |entry| {           
+            const pkt = try packet.S2CUnloadChunkPacket.init(self.alloc);
+            pkt.chunk_x = @bitCast(i32, @truncate(u32, entry.key >> 32));
+            pkt.chunk_z = @bitCast(i32, @truncate(u32, entry.key));
+            try player.network_handler.sendPacket(try pkt.encode(self.alloc));
+            pkt.deinit(self.alloc);
+            player.loaded_chunks.removeAssertDiscard(entry.key);
+        }
+        chunks_held.release();
 
-        for (needed_chunks.items) |chunk_pos| {
+        for (needed_chunks.items) |chunk_id| {
             zap.runtime.yield();
 
-            const held = self.chunks_lock.acquire();
-            defer held.release();
-            if (self.chunks.contains(chunk_pos)) {
+            if (self.containsChunk(chunk_id)) {
                 const player_held = player.loaded_chunks_lock.acquire();
                 defer player_held.release();
-                // try player.loaded_chunks.putNoClobber(chunk_pos, {});
+                try player.loaded_chunks.putNoClobber(chunk_id, {});
 
                 const pkt = try packet.S2CChunkDataPacket.init(self.alloc);
-                pkt.chunk = self.chunks.get(chunk_pos).?;
+                pkt.chunk = self.getChunk(chunk_id);
                 pkt.full_chunk = true;
                 try player.network_handler.sendPacket(try pkt.encode(self.alloc));
                 pkt.deinit(self.alloc);
             } else {
-                const chunk = try Chunk.initFlat(self.alloc, @bitCast(i32, @truncate(u32, chunk_pos >> 32)), @bitCast(i32, @truncate(u32, chunk_pos)));
-                try self.chunks.put(chunk_pos, chunk);
-                log.debug("generated chunk at {}, {}", .{chunk.x, chunk.z});
+                const chunk = try Chunk.initFlat(self.alloc, @bitCast(i32, @truncate(u32, chunk_id >> 32)), @bitCast(i32, @truncate(u32, chunk_id)));
+                try self.captureChunk(chunk);
             }
         }
 
-        if (chunk_x != last_chunk_x or chunk_z != last_chunk_z) {
-            const pkt = try packet.S2CUpdateViewPositionPacket.init(self.alloc);
-            pkt.chunk_x = chunk_x;
-            pkt.chunk_z = chunk_z;
-            try player.network_handler.sendPacket(try pkt.encode(self.alloc));
+        for (loaded_chunks.items) |chunk_id| {
+            zap.runtime.yield();
+
+            const held = player.loaded_chunks_lock.acquire();
+            defer held.release();
+            try player.loaded_chunks.putNoClobber(chunk_id, {});
+        }
+    }
+
+    pub fn setBlock(self: *Group, pos: lc_block.BlockPos, block_state: lc_block.BlockState) !bool {
+        const chunk_x = @divFloor(pos.x, 16);
+        const chunk_z = @divFloor(pos.z, 16);
+
+        var chunk = self.getChunk((@bitCast(u64, @as(i64, chunk_x)) << 32) | @bitCast(u32, chunk_z));
+        const changed = try chunk.setBlock(@mod(std.math.absCast(pos.x), 16), @intCast(u32, pos.y), @mod(std.math.absCast(pos.z), 16), block_state);
+        if (changed) {
+            const pkt = try packet.S2CBlockChangePacket.init(self.alloc);
+            pkt.position = pos;
+            pkt.block_state = block_state;
+            try self.sendPacketToAll(try pkt.encode(self.alloc));
             pkt.deinit(self.alloc);
+            return true;
+        } else {
+            return false;
         }
     }
 
@@ -199,6 +239,14 @@ pub const Group = struct {
     }
 
     pub fn containsChunk(self: *Group, id: u64) bool {
+        const held = self.chunks_lock.acquire();
+        defer held.release();
         return self.chunks.contains(id);
+    }
+
+    pub fn getChunk(self: *Group, id: u64) *Chunk {
+        const held = self.chunks_lock.acquire();
+        defer held.release();
+        return self.chunks.get(id).?;
     }
 };

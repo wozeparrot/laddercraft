@@ -13,6 +13,9 @@ pub const Player = struct {
 
     username: []const u8,
 
+    last_chunk_x: i32,
+    last_chunk_z: i32,
+
     pub fn init(alloc: *Allocator) !Player {
         const base = try alloc.create(entity.Entity);
         base.* = .{
@@ -34,6 +37,9 @@ pub const Player = struct {
             .base = base,
 
             .username = undefined,
+
+            .last_chunk_x = 0,
+            .last_chunk_z = 0,
         };
     }
 
@@ -42,18 +48,10 @@ pub const Player = struct {
     }
 
     pub inline fn chunkX(self: *Player) i32 {
-        return @floatToInt(i32, self.base.pos.x / 16);
+        return @divFloor(@floatToInt(i32, self.base.pos.x), 16);
     }
 
     pub inline fn chunkZ(self: *Player) i32 {
-        return @floatToInt(i32, self.base.pos.z / 16);
-    }
-
-    pub inline fn lastChunkX(self: *Player) i32 {
-        return @floatToInt(i32, self.base.last_pos.x / 16);
-    }
-
-    pub inline fn lastChunkZ(self: *Player) i32 {
-        return @floatToInt(i32, self.base.last_pos.z / 16);
+        return @divFloor(@floatToInt(i32, self.base.pos.z), 16);
     }
 };

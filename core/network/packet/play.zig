@@ -15,6 +15,45 @@ const game = @import("../../game/game.zig");
 const world = @import("../../world/world.zig");
 const nbt = @import("../../nbt/nbt.zig");
 
+// s2c | block change packet | 0x0b
+pub const S2CBlockChangePacket = struct {
+    base: *Packet,
+
+    position: world.block.BlockPos = undefined,
+    block_state: world.block.BlockState = 0,
+
+    pub fn init(alloc: *Allocator) !*S2CBlockChangePacket {
+        const base = try Packet.init(alloc);
+
+        const packet = try alloc.create(S2CBlockChangePacket);
+        packet.* = S2CBlockChangePacket{
+            .base = base,
+        };
+        return packet;
+    }
+
+    pub fn encode(self: *S2CBlockChangePacket, alloc: *Allocator) !*Packet {
+        self.base.id = 0x0b;
+        self.base.read_write = true;
+
+        var array_list = try std.ArrayList(u8).initCapacity(alloc, 4096);
+        defer array_list.deinit();
+        const wr = array_list.writer();
+
+        try wr.writeIntBig(i64, @bitCast(i64, self.position.toPacketPosition()));
+        try utils.writeVarInt(wr, self.block_state);
+
+        self.base.data = array_list.toOwnedSlice();
+        self.base.length = @intCast(i32, self.base.data.len) + 1;
+
+        return self.base;
+    }
+
+    pub fn deinit(self: *S2CBlockChangePacket, alloc: *Allocator) void {
+        alloc.destroy(self);
+    }
+};
+
 // c2s | player position packet | 0x12
 pub const C2SPlayerPositionPacket = struct {
     base: *Packet,
@@ -45,6 +84,40 @@ pub const C2SPlayerPositionPacket = struct {
     }
 
     pub fn deinit(self: *C2SPlayerPositionPacket, alloc: *Allocator) void {
+        alloc.destroy(self);
+    }
+};
+
+// c2s | player digging packet | 0x1b
+pub const C2SPlayerDiggingPacket = struct {
+    base: *Packet,
+
+    status: i32,
+
+    position: world.block.BlockPos,
+    face: i32,
+
+    pub fn decode(alloc: *Allocator, base: *Packet) !*C2SPlayerDiggingPacket {
+        const brd = base.toStream().reader();
+
+        const status = try utils.readVarInt(brd);
+        
+        const position = world.block.BlockPos.fromPacketPosition(try brd.readIntBig(u64));
+        const face = try brd.readByte();
+
+        const packet = try alloc.create(C2SPlayerDiggingPacket);
+        packet.* = C2SPlayerDiggingPacket{
+            .base = base,
+
+            .status = status,
+
+            .position = position,
+            .face = face,
+        };
+        return packet;
+    }
+
+    pub fn deinit(self: *C2SPlayerDiggingPacket, alloc: *Allocator) void {
         alloc.destroy(self);
     }
 };
@@ -284,6 +357,58 @@ pub const S2CJoinGamePacket = struct {
     }
 };
 
+// c2s | player block placement packet | 0x2e
+pub const C2SPlayerBlockPlacementPacket = struct {
+    base: *Packet,
+
+    hand: i32,
+    
+    position: world.block.BlockPos,
+    face: i32,
+
+    cursor_x: f32,
+    cursor_y: f32,
+    cursor_z: f32,
+
+    inside_block: bool,
+
+    pub fn decode(alloc: *Allocator, base: *Packet) !*C2SPlayerBlockPlacementPacket {
+        const brd = base.toStream().reader();
+
+        const hand = try utils.readVarInt(brd);
+        
+        const position = world.block.BlockPos.fromPacketPosition(try brd.readIntBig(u64));
+        const face = try utils.readVarInt(brd);
+
+        const cursor_x = @bitCast(f32, try brd.readIntBig(u32));
+        const cursor_y = @bitCast(f32, try brd.readIntBig(u32));
+        const cursor_z = @bitCast(f32, try brd.readIntBig(u32));
+
+        const inside_block = if ((try brd.readByte()) == 1) true else false;
+
+        const packet = try alloc.create(C2SPlayerBlockPlacementPacket);
+        packet.* = C2SPlayerBlockPlacementPacket{
+            .base = base,
+
+            .hand = hand,
+            
+            .position = position,
+            .face = face,
+            
+            .cursor_x = cursor_x,
+            .cursor_y = cursor_y,
+            .cursor_z = cursor_z,
+            
+            .inside_block = inside_block,
+        };
+        return packet;
+    }
+
+    pub fn deinit(self: *C2SPlayerBlockPlacementPacket, alloc: *Allocator) void {
+        alloc.destroy(self);
+    }
+};
+
 // s2c | player position look packet | 0x34
 pub const S2CPlayerPositionLookPacket = struct {
     base: *Packet,
@@ -370,7 +495,7 @@ pub const S2CHeldItemChangePacket = struct {
     }
 };
 
-// s2c | update view position packet | 0x1c
+// s2c | update view position packet | 0x40
 pub const S2CUpdateViewPositionPacket = struct {
     base: *Packet,
 
@@ -388,18 +513,18 @@ pub const S2CUpdateViewPositionPacket = struct {
     }
 
     pub fn encode(self: *S2CUpdateViewPositionPacket, alloc: *Allocator) !*Packet {
-        self.base.id = 0x1c;
+        self.base.id = 0x40;
         self.base.read_write = true;
-        self.base.length = @sizeOf(S2CUpdateViewPositionPacket) - @sizeOf(usize) + 1;
 
-        var data = try alloc.alloc(u8, @intCast(usize, self.base.length) - 1);
-        var strm = std.io.fixedBufferStream(data);
-        const wr = strm.writer();
+        var array_list = std.ArrayList(u8).init(alloc);
+        defer array_list.deinit();
+        const wr = array_list.writer();
 
-        try wr.writeIntBig(i32, self.chunk_x);
-        try wr.writeIntBig(i32, self.chunk_z);
+        try utils.writeVarInt(wr, self.chunk_x);
+        try utils.writeVarInt(wr, self.chunk_z);
 
-        self.base.data = data;
+        self.base.data = array_list.toOwnedSlice();
+        self.base.length = @intCast(i32, self.base.data.len) + 1;
 
         return self.base;
     }

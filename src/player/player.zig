@@ -6,6 +6,7 @@ const log = std.log;
 const pike = @import("pike");
 const Notifier = pike.Notifier;
 const zap = @import("zap");
+const sync = @import("../sync.zig");
 
 const ladder_core = @import("ladder_core");
 const lc_player = ladder_core.player;
@@ -22,12 +23,12 @@ pub const Player = struct {
 
     network_handler: *NetworkHandler,
     player: lc_player.Player,
-    player_lock: std.Mutex,
+    player_lock: sync.Mutex,
 
     keep_alive: std.time.Timer,
 
     loaded_chunks: std.AutoArrayHashMap(u64, void),
-    loaded_chunks_lock: std.Mutex,
+    loaded_chunks_lock: sync.Mutex,
 
     pub fn init(alloc: *Allocator, network_handler: *NetworkHandler) !*Player {
         const player = try alloc.create(Player);
@@ -38,12 +39,12 @@ pub const Player = struct {
 
             .network_handler = network_handler,
             .player = try lc_player.Player.init(alloc),
-            .player_lock = std.Mutex{},
+            .player_lock = sync.Mutex{},
 
             .keep_alive = try std.time.Timer.start(),
 
             .loaded_chunks = std.AutoArrayHashMap(u64, void).init(alloc),
-            .loaded_chunks_lock = std.Mutex{},
+            .loaded_chunks_lock = sync.Mutex{},
         };
         return player;
     }
@@ -58,18 +59,7 @@ pub const Player = struct {
         self.player.deinit();
         player_held.release();
 
-        self.network_handler.socket.deinit();
-
-        while (self.network_handler.read_packets.get()) |node| {
-            node.data.deinit(self.alloc);
-            self.alloc.destroy(node);
-        }
-        while (self.network_handler.write_packets.get()) |node| {
-            node.data.deinit(self.alloc);
-            self.alloc.destroy(node);
-        }
-
-        self.alloc.destroy(self.network_handler);
+        self.network_handler.deinit();
         self.alloc.destroy(self);
     }
 
@@ -86,7 +76,7 @@ pub const Player = struct {
     pub fn _run(self: *Player, notifier: *const Notifier) !void {
         zap.runtime.yield();
 
-        while (self.network_handler.is_alive.load(.SeqCst)) {
+        while (self.network_handler.is_alive.load(.Monotonic)) {
             zap.runtime.yield();
             
             if (self.keep_alive.read() > std.time.ns_per_s * 6) {

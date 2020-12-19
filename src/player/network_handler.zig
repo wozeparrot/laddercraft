@@ -11,6 +11,7 @@ const pike = @import("pike");
 const Socket = pike.Socket;
 const Notifier = pike.Notifier;
 const zap = @import("zap");
+const sync = @import("../sync.zig");
 
 const ladder_core = @import("ladder_core");
 const network = ladder_core.network;
@@ -35,8 +36,8 @@ pub const NetworkHandler = struct {
     is_alive: std.atomic.Bool,
     player: ?*Player = null,
 
-    read_packets: std.atomic.Queue(*packet.Packet),
-    write_packets: std.atomic.Queue(*packet.Packet),
+    read_packets: sync.Queue(*packet.Packet, 128),
+    write_packets: sync.Queue(*packet.Packet, 128),
 
     pub fn init(alloc: *Allocator, socket: Socket, network_id: i32) !*NetworkHandler {
         const network_handler = try alloc.create(NetworkHandler);
@@ -51,31 +52,30 @@ pub const NetworkHandler = struct {
             .keep_alive_id = std.atomic.Int(u64).init(0),
             .is_alive = std.atomic.Bool.init(true),
 
-            .read_packets = std.atomic.Queue(*packet.Packet).init(),
-            .write_packets = std.atomic.Queue(*packet.Packet).init(),
+            .read_packets = sync.Queue(*packet.Packet, 128){},
+            .write_packets = sync.Queue(*packet.Packet, 128){},
         };
         return network_handler;
     }
 
     pub fn deinit(self: *NetworkHandler) void {
+        self.is_alive.store(false, .SeqCst);
         self.socket.deinit();
 
-        while (self.read_packets.get()) |node| {
-            node.data.deinit(self.alloc);
-            self.alloc.destroy(node);
+        while (self.read_packets.tryPop() catch null) |pkt| {
+            pkt.deinit(self.alloc);
         }
-        while (self.write_packets.get()) |node| {
-            node.data.deinit(self.alloc);
-            self.alloc.destroy(node);
+        while (self.write_packets.tryPop() catch null) |pkt| {
+            pkt.deinit(self.alloc);
         }
+        self.read_packets.close();
+        self.write_packets.close();
 
         self.alloc.destroy(self);
     }
 
     pub fn sendPacket(self: *NetworkHandler, pkt: *packet.Packet) !void {
-        const node = try self.alloc.create(std.atomic.Queue(*packet.Packet).Node);
-        node.* = .{ .data = pkt };
-        self.write_packets.put(node);
+        try self.write_packets.push(pkt);
     }
 
     pub fn start(self: *NetworkHandler, server: *Server) !void {
@@ -86,6 +86,7 @@ pub const NetworkHandler = struct {
         self.writer = self.socket.writer();
 
         try zap.runtime.spawn(.{}, NetworkHandler.read, .{ self, server });
+        try zap.runtime.spawn(.{}, NetworkHandler.write, .{self});
         try zap.runtime.spawn(.{}, NetworkHandler.handle, .{ self, server });
     }
 
@@ -96,10 +97,10 @@ pub const NetworkHandler = struct {
     }
 
     pub fn _read(self: *NetworkHandler, server: *Server) !void {
-        zap.runtime.yield();
+        // zap.runtime.yield();
 
-        while (self.is_alive.load(.SeqCst)) {
-            zap.runtime.yield();
+        while (self.is_alive.load(.Monotonic)) {
+            // zap.runtime.yield();
 
             const base_pkt = packet.Packet.decode(self.alloc, self.reader) catch |err| switch (err) {
                 error.SocketNotListening,
@@ -109,14 +110,31 @@ pub const NetworkHandler = struct {
                 else => return err,
             };
 
-            const node = try self.alloc.create(std.atomic.Queue(*packet.Packet).Node);
-            node.* = .{ .data = base_pkt };
-            self.read_packets.put(node);
+            self.read_packets.push(base_pkt) catch |err| break;
         }
 
         // connection is dead
-        if(server.is_alive.load(.SeqCst)) self.is_alive.store(false, .SeqCst);
-        if(server.is_alive.load(.SeqCst) and self.player == null) self.deinit();
+        if(server.is_alive.load(.Monotonic)) self.is_alive.store(false, .SeqCst);
+        if(server.is_alive.load(.Monotonic) and self.player == null) self.deinit();
+    }
+
+    pub fn write(self: *NetworkHandler) void {
+        self._write() catch |err| {
+            log.err("network_handler - write(): {}", .{@errorName(err)});
+        };
+    }
+
+    pub fn _write(self: *NetworkHandler) !void {
+        // zap.runtime.yield();
+
+        while (self.is_alive.load(.Monotonic)) {
+            // zap.runtime.yield();
+
+            while (try self.write_packets.tryPop()) |base_pkt| {
+                try base_pkt.encode(self.alloc, self.writer);
+                base_pkt.deinit(self.alloc);
+            }
+        }
     }
 
     pub fn handle(self: *NetworkHandler, server: *Server) void {
@@ -126,7 +144,7 @@ pub const NetworkHandler = struct {
     }
 
     pub fn _handle(self: *NetworkHandler, server: *Server) !void {
-        zap.runtime.yield();
+        // zap.runtime.yield();
 
         // check valid handshake and login
         const handshake_return = self.handleHandshake(server) catch |err| {
@@ -146,20 +164,21 @@ pub const NetworkHandler = struct {
             self.player.?.player.username = handshake_return.username;
             // add player to group and start player
             try server.findBestGroup(self.player.?);
-            try self.player.?.start(server.notifier);
 
             // send join game packets
             try self.transistionToPlay(server);
 
+            // start player
+            try self.player.?.start(server.notifier);
+
             // main packet handling loop
-            while (self.is_alive.load(.SeqCst)) {
-                zap.runtime.yield();
+            while (self.is_alive.load(.Monotonic)) {
+                // zap.runtime.yield();
 
-                while (self.read_packets.get()) |node| {
-                    const base_pkt = node.data;
-
+                while (try self.read_packets.tryPop()) |base_pkt| {
                     // handle a play packet
                     switch (base_pkt.id) {
+                        // player position
                         0x12 => {
                             const player_held = self.player.?.player_lock.acquire();
                             defer player_held.release();
@@ -169,30 +188,39 @@ pub const NetworkHandler = struct {
                             self.player.?.player.base.on_ground = pkt.on_ground;
                             pkt.deinit(self.alloc);
                             base_pkt.deinit(self.alloc);
-                            self.alloc.destroy(node);
+                        },
+                        // player digging
+                        0x1b => {
+                            const pkt = try packet.C2SPlayerDiggingPacket.decode(self.alloc, base_pkt);
+                            if (pkt.status == 0) {
+                                var pos = pkt.position;
+                                _ = try self.player.?.group.?.setBlock(pos, 0x0);
+                            }
+                            pkt.deinit(self.alloc);
+                            base_pkt.deinit(self.alloc);
+                        },
+                        // player block placement
+                        0x2e => {
+                            const pkt = try packet.C2SPlayerBlockPlacementPacket.decode(self.alloc, base_pkt);
+                            var pos = pkt.position;
+                            switch (pkt.face) {
+                                0 => pos.y -= 1,
+                                1 => pos.y += 1,
+                                2 => pos.z -= 1,
+                                3 => pos.z += 1,
+                                4 => pos.x -= 1,
+                                5 => pos.x += 1,
+                                else => {},
+                            }
+                            _ = try self.player.?.group.?.setBlock(pos, 0x11);
+                            pkt.deinit(self.alloc);
+                            base_pkt.deinit(self.alloc);
                         },
                         else => {
                             log.err("Unknown play packet: {}", .{base_pkt});
                             base_pkt.deinit(self.alloc);
-                            self.alloc.destroy(node);
                         },
                     }
-
-                    while (self.write_packets.get()) |wnode| {
-                        const wbase_pkt = wnode.data;
-
-                        try wbase_pkt.encode(self.alloc, self.writer);
-                        wbase_pkt.deinit(self.alloc);
-                        self.alloc.destroy(wnode);
-                    }
-                }
-
-                while (self.write_packets.get()) |node| {
-                    const base_pkt = node.data;
-
-                    try base_pkt.encode(self.alloc, self.writer);
-                    base_pkt.deinit(self.alloc);
-                    self.alloc.destroy(node);
                 }
             }
         } else self.is_alive.store(false, .SeqCst);
@@ -206,9 +234,7 @@ pub const NetworkHandler = struct {
 
         // loop until we reach play state or close the connection
         while (self.is_alive.load(.SeqCst)) {
-            while (self.read_packets.get()) |node| {
-                const base_pkt = node.data;
-                defer self.alloc.destroy(node);
+            while (try self.read_packets.tryPop()) |base_pkt| {
                 defer base_pkt.deinit(self.alloc);
 
                 switch (base_pkt.id) {
@@ -230,8 +256,8 @@ pub const NetworkHandler = struct {
                                     spkt.reason = .{ .text = "Protocol version mismatch!" };
                                     const bspkt = try spkt.encode(self.alloc);
                                     defer bspkt.deinit(self.alloc);
-                                    try bspkt.encode(self.alloc, self.writer);
                                     log.debug("{}", .{spkt});
+                                    try bspkt.encode(self.alloc, self.writer);
 
                                     return HandshakeReturnData{ .completed = false, .uuid = undefined, .username = undefined };
                                 }
@@ -252,8 +278,8 @@ pub const NetworkHandler = struct {
                             spkt.username = pkt.username;
                             const bspkt = try spkt.encode(self.alloc);
                             defer bspkt.deinit(self.alloc);
-                            try bspkt.encode(self.alloc, self.writer);
                             log.debug("{}", .{spkt});
+                            try bspkt.encode(self.alloc, self.writer);
 
                             const username = try self.alloc.dupe(u8, pkt.username);
                             return HandshakeReturnData{
@@ -286,48 +312,28 @@ pub const NetworkHandler = struct {
         spkt.gamemode = .{ .mode = .creative, .hardcore = false };
         spkt.dimension_codec = network.BASIC_DIMENSION_CODEC;
         spkt.dimension = network.BASIC_DIMENSION;
-        try self.sendPacket(try spkt.encode(self.alloc));
         log.debug("{}", .{spkt});
+        try self.sendPacket(try spkt.encode(self.alloc));
         spkt.deinit(self.alloc);
-
-        // send chunks
-        // var chunk = try world.chunk.Chunk.initFlat(self.alloc, 0, 0);
-        // defer chunk.deinit();
-        // var cx: i32 = -1;
-        // while (cx <= 1) : (cx += 1) {
-        //     var cz: i32 = -1;
-        //     while (cz <= 1) : (cz += 1) {
-        //         chunk.x = cx;
-        //         chunk.z = cz;
-        //         const spkt2 = try packet.S2CChunkDataPacket.init(self.alloc);
-        //         spkt2.chunk = chunk;
-        //         spkt2.full_chunk = true;
-        //         try self.sendPacket(try spkt2.encode(self.alloc));
-        //         log.debug("{}", .{spkt2});
-        //         spkt2.deinit(self.alloc);
-        //     }
-        // }
-        
-        // try self.player.?.group.?.updatePlayerChunks(self.player.?);
 
         // send player position look packet
         const spkt3 = try packet.S2CPlayerPositionLookPacket.init(self.alloc);
         spkt3.pos = zlm.vec3(0, 63, 0);
-        try self.sendPacket(try spkt3.encode(self.alloc));
         log.debug("{}", .{spkt3});
+        try self.sendPacket(try spkt3.encode(self.alloc));
         spkt3.deinit(self.alloc);
 
         // send spawn position packet
         const spkt4 = try packet.S2CSpawnPositionPacket.init(self.alloc);
         spkt4.pos = zlm.vec3(0, 63, 0);
-        try self.sendPacket(try spkt4.encode(self.alloc));
         log.debug("{}", .{spkt4});
+        try self.sendPacket(try spkt4.encode(self.alloc));
         spkt4.deinit(self.alloc);
 
         // send hand slot packet
         const spkt5 = try packet.S2CHeldItemChangePacket.init(self.alloc);
-        try self.sendPacket(try spkt5.encode(self.alloc));
         log.debug("{}", .{spkt5});
+        try self.sendPacket(try spkt5.encode(self.alloc));
         spkt5.deinit(self.alloc);
     }
 };

@@ -70,6 +70,21 @@ pub const Packet = struct {
         alloc.destroy(self);
     }
 
+    pub fn copy(self: *Packet, alloc: *Allocator) !*Packet {
+        const data = if (self.read_write) try alloc.dupe(u8, self.data) else try alloc.dupe(u8, self.raw_data);
+
+        const packet = try alloc.create(Packet);
+        packet.* = .{
+            .length = self.length,
+            .id = self.id,
+            .data = if (self.read_write) data else data[1..],
+
+            .read_write = self.read_write,
+            .raw_data = if (self.read_write) undefined else data,
+        };
+        return packet;
+    }
+
     pub fn toStream(self: *Packet) io.FixedBufferStream([]u8) {
         return io.fixedBufferStream(self.data);
     }
