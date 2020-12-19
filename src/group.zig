@@ -3,11 +3,6 @@ const mem = std.mem;
 const Allocator = mem.Allocator;
 const log = std.log;
 
-const pike = @import("pike");
-const Notifier = pike.Notifier;
-const zap = @import("zap");
-const sync = @import("sync.zig");
-
 const ladder_core = @import("ladder_core");
 const network = ladder_core.network;
 const packet = network.packet;
@@ -22,31 +17,29 @@ pub const Group = struct {
     alloc: *Allocator,
 
     server: *Server,
-    notifier: *const Notifier,
 
     players: std.AutoArrayHashMap(*Player, void),
-    players_lock: sync.Mutex,
+    players_lock: std.event.Lock,
     player_count: std.atomic.Int(u32),
 
     chunks: std.AutoArrayHashMap(u64, *Chunk),
-    chunks_lock: sync.Mutex,
+    chunks_lock: std.event.Lock,
 
     is_alive: std.atomic.Bool,
 
-    pub fn init(alloc: *Allocator, server: *Server, notifier: *const Notifier) !*Group {
+    pub fn init(alloc: *Allocator, server: *Server) !*Group {
         const group = try alloc.create(Group);
         group.* = .{
             .alloc = alloc,
 
             .server = server,
-            .notifier = notifier,
 
             .players = std.AutoArrayHashMap(*Player, void).init(alloc),
-            .players_lock = sync.Mutex{},
+            .players_lock = std.event.Lock{},
             .player_count = std.atomic.Int(u32).init(0),
 
             .chunks = std.AutoArrayHashMap(u64, *Chunk).init(alloc),
-            .chunks_lock = sync.Mutex{},
+            .chunks_lock = std.event.Lock{},
 
             .is_alive = std.atomic.Bool.init(true),
         };
@@ -74,7 +67,7 @@ pub const Group = struct {
     }
 
     pub fn start(self: *Group) !void {
-        try zap.runtime.spawn(.{}, Group.run, .{self});
+        try std.event.Loop.instance.?.runDetached(self.alloc, Group.run, .{self});
     }
 
     pub fn run(self: *Group) void {
@@ -84,11 +77,7 @@ pub const Group = struct {
     }
 
     pub fn _run(self: *Group) !void {
-        zap.runtime.yield();
-
         while (self.is_alive.load(.Monotonic)) {
-            zap.runtime.yield();
-
             if (self.player_count.get() == 0) {
                 self.is_alive.store(false, .SeqCst);
             }
@@ -122,12 +111,14 @@ pub const Group = struct {
         const held = self.players_lock.acquire();
         defer held.release();
         for (self.players.items()) |entry| {
-            try entry.key.network_handler.sendPacket(try pkt.copy(self.alloc));
+            entry.key.network_handler.sendPacket(try pkt.copy(self.alloc));
         }
         pkt.deinit(self.alloc);
     }
 
     pub fn updatePlayerChunks(self: *Group, player: *Player) !void {
+        std.event.Loop.startCpuBoundOperation();
+
         var needed_chunks = std.ArrayList(u64).init(self.alloc);
         defer needed_chunks.deinit();
         var loaded_chunks = std.ArrayList(u64).init(self.alloc);
@@ -146,7 +137,7 @@ pub const Group = struct {
             const pkt = try packet.S2CUpdateViewPositionPacket.init(self.alloc);
             pkt.chunk_x = chunk_x;
             pkt.chunk_z = chunk_z;
-            try player.network_handler.sendPacket(try pkt.encode(self.alloc));
+            player.network_handler.sendPacket(try pkt.encode(self.alloc));
             pkt.deinit(self.alloc);
         }
         inner_player_held.release();
@@ -155,8 +146,6 @@ pub const Group = struct {
         while (x <= chunk_x + @as(i32, l_config.view_distance)) : (x += 1) {
             var z: i32 = chunk_z - @as(i32, l_config.view_distance);
             while (z <= chunk_z + @as(i32, l_config.view_distance)) : (z += 1) {
-                zap.runtime.yield();
-
                 const held = player.loaded_chunks_lock.acquire();
                 defer held.release();
                 const chunk_id = (@bitCast(u64, @as(i64, x)) << 32) | @bitCast(u32, z);
@@ -174,15 +163,13 @@ pub const Group = struct {
             const pkt = try packet.S2CUnloadChunkPacket.init(self.alloc);
             pkt.chunk_x = @bitCast(i32, @truncate(u32, entry.key >> 32));
             pkt.chunk_z = @bitCast(i32, @truncate(u32, entry.key));
-            try player.network_handler.sendPacket(try pkt.encode(self.alloc));
+            player.network_handler.sendPacket(try pkt.encode(self.alloc));
             pkt.deinit(self.alloc);
             player.loaded_chunks.removeAssertDiscard(entry.key);
         }
         chunks_held.release();
 
         for (needed_chunks.items) |chunk_id| {
-            zap.runtime.yield();
-
             if (self.containsChunk(chunk_id)) {
                 const player_held = player.loaded_chunks_lock.acquire();
                 defer player_held.release();
@@ -191,7 +178,7 @@ pub const Group = struct {
                 const pkt = try packet.S2CChunkDataPacket.init(self.alloc);
                 pkt.chunk = self.getChunk(chunk_id);
                 pkt.full_chunk = true;
-                try player.network_handler.sendPacket(try pkt.encode(self.alloc));
+                player.network_handler.sendPacket(try pkt.encode(self.alloc));
                 pkt.deinit(self.alloc);
             } else {
                 const chunk = try Chunk.initFlat(self.alloc, @bitCast(i32, @truncate(u32, chunk_id >> 32)), @bitCast(i32, @truncate(u32, chunk_id)));
@@ -200,8 +187,6 @@ pub const Group = struct {
         }
 
         for (loaded_chunks.items) |chunk_id| {
-            zap.runtime.yield();
-
             const held = player.loaded_chunks_lock.acquire();
             defer held.release();
             try player.loaded_chunks.putNoClobber(chunk_id, {});
