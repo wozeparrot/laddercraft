@@ -3,14 +3,6 @@ const Pkg = @import("std").build.Pkg;
 const Builder = @import("std").build.Builder;
 
 const deps = struct {
-    const pike = Pkg{
-        .name = "pike",
-        .path = "deps/pike/pike.zig",
-    };
-    const zap = Pkg{
-        .name = "zap",
-        .path = "deps/zap/src/zap.zig",
-    };
     const zlm = Pkg{
         .name = "zlm",
         .path = "deps/zlm/zlm.zig",
@@ -33,8 +25,6 @@ pub fn build(b: *Builder) void {
     exe.setTarget(target);
     exe.setBuildMode(mode);
 
-    exe.addPackage(deps.pike);
-    exe.addPackage(deps.zap);
     exe.addPackage(deps.zlm);
 
     exe.addPackage(deps.ladder_core);
