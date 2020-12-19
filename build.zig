@@ -12,7 +12,7 @@ const deps = struct {
         .name = "ladder_core",
         .path = "core/lib.zig",
         .dependencies = &[_]Pkg{
-            pike, zlm,
+            zlm,
         },
     };
 };
