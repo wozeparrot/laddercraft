@@ -99,21 +99,75 @@ pub const Group = struct {
         player.group = self;
     }
 
-    pub fn removePlayer(self: *Group, player: *Player) void {
+    pub fn removePlayer(self: *Group, player: *Player) !void {
         const held = self.players_lock.acquire();
         defer held.release();
 
         _ = self.player_count.decr();
-        _ = self.players.remove(player);
+        if (self.players.remove(player)) |entry| {
+            // const pkt = try packet.S2CPlayerInfoPacket.init(self.alloc);
+            // pkt.action = .remove_player;
+            // pkt.players = &[_]packet.S2CPlayerInfoPlayer{
+            //     .{
+            //         .uuid = entry.key.player.base.uuid,
+
+            //         .data = .{ .remove_player = {} },
+            //     }
+            // };
+            // log.debug("{}", .{pkt});
+            // try self.server.sendPacketToAll(try pkt.encode(self.alloc), null);
+            // pkt.deinit(self.alloc);
+        }
     }
 
-    pub fn sendPacketToAll(self: *Group, pkt: *packet.Packet) !void {
+    pub fn sendPacketToAll(self: *Group, pkt: *packet.Packet, player: ?*Player) !void {
         const held = self.players_lock.acquire();
         defer held.release();
         for (self.players.items()) |entry| {
+            if (player) |p| if (entry.key == p) continue;
             entry.key.network_handler.sendPacket(try pkt.copy(self.alloc));
         }
         pkt.deinit(self.alloc);
+    }
+
+    pub fn sendPlayersToPlayer(self: *Group, player: *Player) !void {
+        const held = self.players_lock.acquire();
+        defer held.release();
+        for (self.players.items()) |entry| {
+            const player_held = entry.key.player_lock.acquire();
+            defer player_held.release();
+
+            const pkt = try packet.S2CPlayerInfoPacket.init(self.alloc);
+            pkt.action = .add_player;
+            pkt.players = &[_]packet.S2CPlayerInfoPlayer{.{
+                .uuid = entry.key.player.base.uuid,
+
+                .data = .{
+                    .add_player = .{
+                        .name = entry.key.player.username,
+                        .properties = &[0]packet.S2CPlayerInfoProperties{},
+                        .gamemode = 0,
+                        .ping = 0,
+                        .display_name = null,
+                    },
+                },
+            }};
+            log.debug("{}", .{pkt});
+            player.network_handler.sendPacket(try pkt.encode(self.alloc));
+            pkt.deinit(self.alloc);
+
+            if (entry.key == player) continue;
+            if (self.players.contains(player)) {
+                const pkt2 = try packet.S2CSpawnPlayerPacket.init(self.alloc);
+                pkt2.entity_id = entry.key.player.base.entity_id;
+                pkt2.uuid = entry.key.player.base.uuid;
+                pkt2.pos = entry.key.player.base.pos;
+                pkt2.look = entry.key.player.base.look;
+                log.debug("{}", .{pkt2});
+                player.network_handler.sendPacket(try pkt2.encode(self.alloc));
+                pkt2.deinit(self.alloc);
+            }
+        }
     }
 
     pub fn updatePlayerChunks(self: *Group, player: *Player) !void {
@@ -129,7 +183,7 @@ pub const Group = struct {
         const chunk_z = player.player.chunkZ();
         const last_chunk_x = player.player.last_chunk_x;
         const last_chunk_z = player.player.last_chunk_z;
-        
+
         if (!(chunk_x == last_chunk_x and chunk_z == last_chunk_z)) {
             player.player.last_chunk_x = chunk_x;
             player.player.last_chunk_z = chunk_z;
@@ -159,7 +213,7 @@ pub const Group = struct {
         }
 
         const chunks_held = player.loaded_chunks_lock.acquire();
-        for (player.loaded_chunks.items()) |entry| {           
+        for (player.loaded_chunks.items()) |entry| {
             const pkt = try packet.S2CUnloadChunkPacket.init(self.alloc);
             pkt.chunk_x = @bitCast(i32, @truncate(u32, entry.key >> 32));
             pkt.chunk_z = @bitCast(i32, @truncate(u32, entry.key));
@@ -198,12 +252,12 @@ pub const Group = struct {
         const chunk_z = @divFloor(pos.z, 16);
 
         var chunk = self.getChunk((@bitCast(u64, @as(i64, chunk_x)) << 32) | @bitCast(u32, chunk_z));
-        const changed = try chunk.setBlock(@mod(std.math.absCast(pos.x), 16), @intCast(u32, pos.y), @mod(std.math.absCast(pos.z), 16), block_state);
+        const changed = try chunk.setBlock(std.math.absCast(@mod(pos.x, 16)), @intCast(u32, pos.y), std.math.absCast(@mod(pos.z, 16)), block_state);
         if (changed) {
             const pkt = try packet.S2CBlockChangePacket.init(self.alloc);
             pkt.position = pos;
             pkt.block_state = block_state;
-            try self.sendPacketToAll(try pkt.encode(self.alloc));
+            try self.sendPacketToAll(try pkt.encode(self.alloc), null);
             pkt.deinit(self.alloc);
             return true;
         } else {

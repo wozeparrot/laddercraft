@@ -21,12 +21,13 @@ pub const Player = struct {
         base.* = .{
             .kind = .player,
             .uuid = undefined,
+            .entity_id = -1,
 
-            .pos = zlm.Vec3.zero,
+            .pos = zlm.vec3(0, 5, 0),
             .look = zlm.Vec2.zero,
             .vel = zlm.Vec3.zero,
 
-            .last_pos = zlm.Vec3.zero,
+            .last_pos = zlm.vec3(0, 5, 0),
             .last_look = zlm.Vec2.zero,
             .last_vel = zlm.Vec3.zero,
 

@@ -21,9 +21,9 @@ pub const Server = struct {
 
     seed: u64,
     random: rand.Random,
+    current_entity_id: std.atomic.Int(i32),
 
     stream_server: net.StreamServer,
-    current_network_id: i32,
     holding: std.AutoArrayHashMap(*NetworkHandler, void),
     holding_lock: std.event.Lock,
 
@@ -39,9 +39,9 @@ pub const Server = struct {
 
             .seed = seed,
             .random = rand.DefaultPrng.init(seed).random,
+            .current_entity_id = std.atomic.Int(i32).init(0),
 
             .stream_server = net.StreamServer.init(.{ .reuse_address = true }),
-            .current_network_id = 0,
             .holding = std.AutoArrayHashMap(*NetworkHandler, void).init(alloc),
             .holding_lock = std.event.Lock{},
 
@@ -87,11 +87,10 @@ pub const Server = struct {
             };
 
             // create network_handler
-            const network_handler = NetworkHandler.init(self.alloc, conn, self.current_network_id) catch |err| {
+            const network_handler = NetworkHandler.init(self.alloc, conn) catch |err| {
                 conn.file.close();
                 continue;
             };
-            self.current_network_id += 1;
 
             // add to holding group
             const held = self.holding_lock.acquire();
@@ -131,5 +130,27 @@ pub const Server = struct {
                 break;
             }
         }
+    }
+
+    pub fn sendPacketToAll(self: *Server, pkt: *lc_packet.Packet, player: ?*Player) !void {
+        const held = self.groups_lock.acquire();
+        defer held.release();
+
+        for (self.groups.items()) |entry| {
+            try entry.key.sendPacketToAll(pkt, player);
+        }
+    }
+
+    pub fn sendPlayersToPlayer(self: *Server, player: *Player) !void {
+        const held = self.groups_lock.acquire();
+        defer held.release();
+
+        for (self.groups.items()) |entry| {
+            try entry.key.sendPlayersToPlayer(player);
+        }
+    }
+
+    pub fn nextEntityId(self: *Server) i32 {
+        return self.current_entity_id.incr();
     }
 };

@@ -7,6 +7,7 @@ const UUID = @import("../uuid.zig").UUID;
 pub const Entity = struct {
     kind: EntityKind,
     uuid: UUID,
+    entity_id: i32,
 
     pos: zlm.Vec3,
     look: zlm.Vec2,

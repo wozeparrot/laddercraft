@@ -21,7 +21,6 @@ const Server = @import("../server.zig").Server;
 
 pub const NetworkHandler = struct {
     alloc: *Allocator,
-    network_id: i32,
     read_frame: @Frame(NetworkHandler.read),
     write_frame: @Frame(NetworkHandler.write),
 
@@ -38,11 +37,10 @@ pub const NetworkHandler = struct {
     write_packets: *std.event.Channel(*packet.Packet),
     write_packets_buf: [256]*packet.Packet = undefined,
 
-    pub fn init(alloc: *Allocator, conn: net.StreamServer.Connection, network_id: i32) !*NetworkHandler {
+    pub fn init(alloc: *Allocator, conn: net.StreamServer.Connection) !*NetworkHandler {
         const network_handler = try alloc.create(NetworkHandler);
         network_handler.* = .{
             .alloc = alloc,
-            .network_id = network_id,
             .read_frame = undefined,
             .write_frame = undefined,
 
@@ -103,6 +101,7 @@ pub const NetworkHandler = struct {
                 error.OperationAborted,
                 error.BrokenPipe,
                 error.EndOfStream,
+                error.ConnectionResetByPeer,
                 => break,
                 else => return err,
             };
@@ -153,6 +152,7 @@ pub const NetworkHandler = struct {
             // set player uuid and username
             self.player.?.player.base.uuid = handshake_return.uuid;
             self.player.?.player.username = handshake_return.username;
+            self.player.?.player.base.entity_id = server.nextEntityId();
             // add player to group and start player
             try server.findBestGroup(self.player.?);
 
@@ -177,6 +177,41 @@ pub const NetworkHandler = struct {
                         self.player.?.player.base.on_ground = pkt.on_ground;
                         pkt.deinit(self.alloc);
                         base_pkt.deinit(self.alloc);
+
+                        const gpkt = try packet.S2CEntityPositionPacket.init(self.alloc);
+                        gpkt.entity_id = self.player.?.player.base.entity_id;
+                        gpkt.delta = zlm.vec3(
+                            ((self.player.?.player.base.pos.x * 32 - self.player.?.player.base.last_pos.x * 32) * 128),
+                            ((self.player.?.player.base.pos.y * 32 - self.player.?.player.base.last_pos.y * 32) * 128),
+                            ((self.player.?.player.base.pos.z * 32 - self.player.?.player.base.last_pos.z * 32) * 128),
+                        );
+                        gpkt.on_ground = self.player.?.player.base.on_ground;
+                        try self.player.?.group.?.sendPacketToAll(try gpkt.encode(self.alloc), self.player);
+                        gpkt.deinit(self.alloc);
+                    },
+                    // player rotation
+                    0x14 => {
+                        const player_held = self.player.?.player_lock.acquire();
+                        defer player_held.release();
+                        const pkt = try packet.C2SPlayerRotationPacket.decode(self.alloc, base_pkt);
+                        self.player.?.player.base.last_look = self.player.?.player.base.look;
+                        self.player.?.player.base.look = zlm.vec2(pkt.yaw, pkt.pitch);
+                        self.player.?.player.base.on_ground = pkt.on_ground;
+                        pkt.deinit(self.alloc);
+                        base_pkt.deinit(self.alloc);
+
+                        const gpkt = try packet.S2CEntityRotationPacket.init(self.alloc);
+                        gpkt.entity_id = self.player.?.player.base.entity_id;
+                        gpkt.look = self.player.?.player.base.look;
+                        gpkt.on_ground = self.player.?.player.base.on_ground;
+                        try self.player.?.group.?.sendPacketToAll(try gpkt.encode(self.alloc), self.player);
+                        gpkt.deinit(self.alloc);
+
+                        const gpkt2 = try packet.S2CEntityHeadLookPacket.init(self.alloc);
+                        gpkt2.entity_id = self.player.?.player.base.entity_id;
+                        gpkt2.look = self.player.?.player.base.look;
+                        try self.player.?.group.?.sendPacketToAll(try gpkt2.encode(self.alloc), self.player);
+                        gpkt2.deinit(self.alloc);
                     },
                     // player digging
                     0x1b => {
@@ -185,6 +220,30 @@ pub const NetworkHandler = struct {
                             var pos = pkt.position;
                             _ = try self.player.?.group.?.setBlock(pos, 0x0);
                         }
+                        pkt.deinit(self.alloc);
+                        base_pkt.deinit(self.alloc);
+                    },
+                    0x2c => {
+                        const pkt = try packet.C2SAnimationPacket.decode(self.alloc, base_pkt);
+                        
+                        switch (pkt.hand) {
+                            0 => {
+                                const gpkt = try packet.S2CEntityAnimationPacket.init(self.alloc);
+                                gpkt.entity_id = self.player.?.player.base.entity_id;
+                                gpkt.animation = 0;
+                                try self.player.?.group.?.sendPacketToAll(try gpkt.encode(self.alloc), self.player);
+                                gpkt.deinit(self.alloc);
+                            },
+                            1 => {
+                                const gpkt = try packet.S2CEntityAnimationPacket.init(self.alloc);
+                                gpkt.entity_id = self.player.?.player.base.entity_id;
+                                gpkt.animation = 3;
+                                try self.player.?.group.?.sendPacketToAll(try gpkt.encode(self.alloc), self.player);
+                                gpkt.deinit(self.alloc);
+                            },
+                            else => {},
+                        }
+
                         pkt.deinit(self.alloc);
                         base_pkt.deinit(self.alloc);
                     },
@@ -262,7 +321,7 @@ pub const NetworkHandler = struct {
                         // send login success packet
                         const spkt = try packet.S2CLoginSuccessPacket.init(self.alloc);
                         defer spkt.deinit(self.alloc);
-                        spkt.uuid = UUID.new(&std.rand.DefaultPrng.init(@bitCast(u64, std.time.timestamp())).random);
+                        spkt.uuid = UUID.newv4(&std.rand.DefaultPrng.init(@bitCast(u64, std.time.timestamp())).random);
                         spkt.username = pkt.username;
                         const bspkt = try spkt.encode(self.alloc);
                         defer bspkt.deinit(self.alloc);
@@ -295,7 +354,7 @@ pub const NetworkHandler = struct {
     fn transistionToPlay(self: *NetworkHandler, server: *Server) !void {
         // send join game packet
         const spkt = try packet.S2CJoinGamePacket.init(self.alloc);
-        spkt.entity_id = self.network_id;
+        spkt.entity_id = self.player.?.player.base.entity_id;
         spkt.gamemode = .{ .mode = .creative, .hardcore = false };
         spkt.dimension_codec = network.BASIC_DIMENSION_CODEC;
         spkt.dimension = network.BASIC_DIMENSION;
@@ -304,23 +363,23 @@ pub const NetworkHandler = struct {
         spkt.deinit(self.alloc);
 
         // send player position look packet
-        const spkt3 = try packet.S2CPlayerPositionLookPacket.init(self.alloc);
-        spkt3.pos = zlm.vec3(0, 63, 0);
+        const spkt2 = try packet.S2CPlayerPositionLookPacket.init(self.alloc);
+        spkt2.pos = self.player.?.player.base.pos;
+        log.debug("{}", .{spkt2});
+        self.sendPacket(try spkt2.encode(self.alloc));
+        spkt2.deinit(self.alloc);
+
+        // send spawn position packet
+        const spkt3 = try packet.S2CSpawnPositionPacket.init(self.alloc);
+        spkt3.pos = self.player.?.player.base.pos;
         log.debug("{}", .{spkt3});
         self.sendPacket(try spkt3.encode(self.alloc));
         spkt3.deinit(self.alloc);
 
-        // send spawn position packet
-        const spkt4 = try packet.S2CSpawnPositionPacket.init(self.alloc);
-        spkt4.pos = zlm.vec3(0, 63, 0);
+        // send hand slot packet
+        const spkt4 = try packet.S2CHeldItemChangePacket.init(self.alloc);
         log.debug("{}", .{spkt4});
         self.sendPacket(try spkt4.encode(self.alloc));
         spkt4.deinit(self.alloc);
-
-        // send hand slot packet
-        const spkt5 = try packet.S2CHeldItemChangePacket.init(self.alloc);
-        log.debug("{}", .{spkt5});
-        self.sendPacket(try spkt5.encode(self.alloc));
-        spkt5.deinit(self.alloc);
     }
 };

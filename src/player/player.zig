@@ -59,6 +59,40 @@ pub const Player = struct {
     }
 
     pub fn start(self: *Player) !void {
+        // send player info to all players on server
+        const pkt = try packet.S2CPlayerInfoPacket.init(self.alloc);
+        pkt.action = .add_player;
+        pkt.players = &[_]packet.S2CPlayerInfoPlayer{
+            .{
+                .uuid = self.player.base.uuid,
+
+                .data = .{
+                    .add_player = .{
+                        .name = self.player.username,
+                        .properties = &[0]packet.S2CPlayerInfoProperties{},
+                        .gamemode = 0,
+                        .ping = 0,
+                        .display_name = null,
+                    }
+                }
+            }
+        };
+        log.debug("{}", .{pkt});
+        try self.group.?.server.sendPacketToAll(try pkt.encode(self.alloc), null);
+        pkt.deinit(self.alloc);
+
+        const pkt2 = try packet.S2CSpawnPlayerPacket.init(self.alloc);
+        pkt2.entity_id = self.player.base.entity_id;
+        pkt2.uuid = self.player.base.uuid;
+        pkt2.pos = self.player.base.pos;
+        pkt2.look = self.player.base.look;
+        log.debug("{}", .{pkt2});
+        try self.group.?.server.sendPacketToAll(try pkt2.encode(self.alloc), self);
+        pkt2.deinit(self.alloc);
+
+        // get player info from other players
+        try self.group.?.server.sendPlayersToPlayer(self);
+
         try std.event.Loop.instance.?.runDetached(self.alloc, Player.run, .{self});
     }
 
@@ -83,10 +117,7 @@ pub const Player = struct {
         }
 
         if (self.group) |group| {
-            const held = group.players_lock.acquire();
-            group.players.removeAssertDiscard(self);
-            _ = group.player_count.decr();
-            held.release();
+            try group.removePlayer(self);
         }
         self.deinit();
     }
