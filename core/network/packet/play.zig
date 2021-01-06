@@ -14,6 +14,34 @@ const UUID = @import("../../uuid.zig").UUID;
 const game = @import("../../game/game.zig");
 const world = @import("../../world/world.zig");
 const nbt = @import("../../nbt/nbt.zig");
+const player = @import("../../player/player.zig");
+
+// c2s | chat message packet | 0x03
+pub const C2SChatMessagePacket = struct {
+    base: *Packet,
+
+    message: []const u8,
+
+    pub fn decode(alloc: *Allocator, base: *Packet) !*C2SChatMessagePacket {
+        const brd = base.toStream().reader();
+
+        const length = try utils.readVarInt(brd);
+        const message = try utils.readByteArray(alloc, brd, length);
+
+        const packet = try alloc.create(C2SChatMessagePacket);
+        packet.* = C2SChatMessagePacket{
+            .base = base,
+
+            .message = message,
+        };
+        return packet;
+    }
+
+    pub fn deinit(self: *C2SChatMessagePacket, alloc: *Allocator) void {
+        alloc.free(self.message);
+        alloc.destroy(self);
+    }
+};
 
 // s2c | spawn player packet | 0x04
 pub const S2CSpawnPlayerPacket = struct {
@@ -140,6 +168,47 @@ pub const S2CBlockChangePacket = struct {
     }
 };
 
+// s2c | chat message packet | 0x0e
+pub const S2CChatMessagePacket = struct {
+    base: *Packet,
+
+    message: chat.Text = undefined,
+    position: u8 = 0,
+    sender: UUID = UUID.zero(),
+
+    pub fn init(alloc: *Allocator) !*S2CChatMessagePacket {
+        const base = try Packet.init(alloc);
+
+        const packet = try alloc.create(S2CChatMessagePacket);
+        packet.* = S2CChatMessagePacket{
+            .base = base,
+        };
+        return packet;
+    }
+
+    pub fn encode(self: *S2CChatMessagePacket, alloc: *Allocator) !*Packet {
+        self.base.id = 0x0e;
+        self.base.read_write = true;
+
+        var array_list = try std.ArrayList(u8).initCapacity(alloc, 4096);
+        defer array_list.deinit();
+        const wr = array_list.writer();
+
+        try utils.writeJSONStruct(alloc, wr, self.message);
+        try wr.writeByte(self.position);
+        try wr.writeIntBig(u128, self.sender.uuid);
+
+        self.base.data = array_list.toOwnedSlice();
+        self.base.length = @intCast(i32, self.base.data.len) + 1;
+
+        return self.base;
+    }
+
+    pub fn deinit(self: *S2CChatMessagePacket, alloc: *Allocator) void {
+        alloc.destroy(self);
+    }
+};
+
 // c2s | player position packet | 0x12
 pub const C2SPlayerPositionPacket = struct {
     base: *Packet,
@@ -174,7 +243,47 @@ pub const C2SPlayerPositionPacket = struct {
     }
 };
 
-// c2s | player position packet | 0x12
+// c2s | player position and rotation packet | 0x13
+pub const C2SPlayerPositionRotationPacket = struct {
+    base: *Packet,
+
+    x: f64,
+    y: f64,
+    z: f64,
+    yaw: f32,
+    pitch: f32,
+    on_ground: bool,
+
+    pub fn decode(alloc: *Allocator, base: *Packet) !*C2SPlayerPositionRotationPacket {
+        const brd = base.toStream().reader();
+
+        const x = @bitCast(f64, try brd.readIntBig(i64));
+        const y = @bitCast(f64, try brd.readIntBig(i64));
+        const z = @bitCast(f64, try brd.readIntBig(i64));
+        const yaw = @bitCast(f32, try brd.readIntBig(i32));
+        const pitch = @bitCast(f32, try brd.readIntBig(i32));
+        const on_ground = if ((try brd.readByte()) == 1) true else false;
+
+        const packet = try alloc.create(C2SPlayerPositionRotationPacket);
+        packet.* = C2SPlayerPositionRotationPacket{
+            .base = base,
+
+            .x = x,
+            .y = y,
+            .z = z,
+            .yaw = yaw,
+            .pitch = pitch,
+            .on_ground = on_ground,
+        };
+        return packet;
+    }
+
+    pub fn deinit(self: *C2SPlayerPositionRotationPacket, alloc: *Allocator) void {
+        alloc.destroy(self);
+    }
+};
+
+// c2s | player position packet | 0x14
 pub const C2SPlayerRotationPacket = struct {
     base: *Packet,
 
@@ -474,6 +583,31 @@ pub const S2CJoinGamePacket = struct {
     }
 };
 
+// c2s | held item change packet | 0x25
+pub const C2SHeldItemChangePacket = struct {
+    base: *Packet,
+
+    slot: u8,
+
+    pub fn decode(alloc: *Allocator, base: *Packet) !*C2SHeldItemChangePacket {
+        const brd = base.toStream().reader();
+
+        const slot = @intCast(u8, try brd.readIntBig(i16));
+
+        const packet = try alloc.create(C2SHeldItemChangePacket);
+        packet.* = C2SHeldItemChangePacket{
+            .base = base,
+
+            .slot = slot,
+        };
+        return packet;
+    }
+
+    pub fn deinit(self: *C2SHeldItemChangePacket, alloc: *Allocator) void {
+        alloc.destroy(self);
+    }
+};
+
 // s2c | entity position packet | 0x27
 pub const S2CEntityPositionPacket = struct {
     base: *Packet,
@@ -513,6 +647,84 @@ pub const S2CEntityPositionPacket = struct {
     }
 
     pub fn deinit(self: *S2CEntityPositionPacket, alloc: *Allocator) void {
+        alloc.destroy(self);
+    }
+};
+
+// s2c | entity position and rotation packet | 0x28
+pub const S2CEntityPositionRotationPacket = struct {
+    base: *Packet,
+
+    entity_id: i32 = 0,
+    delta: zlm.Vec3 = zlm.Vec3.zero,
+    look: zlm.Vec2 = zlm.Vec2.zero,
+    on_ground: bool = true,
+
+    pub fn init(alloc: *Allocator) !*S2CEntityPositionRotationPacket {
+        const base = try Packet.init(alloc);
+
+        const packet = try alloc.create(S2CEntityPositionRotationPacket);
+        packet.* = S2CEntityPositionRotationPacket{
+            .base = base,
+        };
+        return packet;
+    }
+
+    pub fn encode(self: *S2CEntityPositionRotationPacket, alloc: *Allocator) !*Packet {
+        self.base.id = 0x28;
+        self.base.read_write = true;
+
+        var array_list = std.ArrayList(u8).init(alloc);
+        defer array_list.deinit();
+        const wr = array_list.writer();
+
+        try utils.writeVarInt(wr, self.entity_id);
+        try wr.writeIntBig(i16, @floatToInt(i16, self.delta.x));
+        try wr.writeIntBig(i16, @floatToInt(i16, self.delta.y));
+        try wr.writeIntBig(i16, @floatToInt(i16, self.delta.z));
+        try wr.writeIntBig(i8, @bitCast(i8, @floatToInt(u8, (@mod(self.look.x, 360) / 360) * 256)));
+        try wr.writeIntBig(i8, @bitCast(i8, @floatToInt(u8, (@mod(self.look.y, 360) / 360) * 256)));
+        try wr.writeByte(@boolToInt(self.on_ground));
+
+        self.base.data = array_list.toOwnedSlice();
+        self.base.length = @intCast(i32, self.base.data.len) + 1;
+
+        return self.base;
+    }
+
+    pub fn deinit(self: *S2CEntityPositionRotationPacket, alloc: *Allocator) void {
+        alloc.destroy(self);
+    }
+};
+
+// c2s | creative inventory packet | 0x28
+pub const C2SCreativeInventoryActionPacket = struct {
+    base: *Packet,
+
+    slot: i16,
+    clicked_item: ?player.inventory.Slot,
+
+    pub fn decode(alloc: *Allocator, base: *Packet) !*C2SCreativeInventoryActionPacket {
+        const brd = base.toStream().reader();
+
+        const slot = try brd.readIntBig(i16);
+        const clicked_item = if ((try brd.readByte()) == 1) player.inventory.Slot{
+            .id = try utils.readVarInt(brd),
+            .count = try brd.readByte(),
+            // TODO: nbt parsing
+        } else null;
+
+        const packet = try alloc.create(C2SCreativeInventoryActionPacket);
+        packet.* = C2SCreativeInventoryActionPacket{
+            .base = base,
+
+            .slot = slot,
+            .clicked_item = clicked_item,
+        };
+        return packet;
+    }
+
+    pub fn deinit(self: *C2SCreativeInventoryActionPacket, alloc: *Allocator) void {
         alloc.destroy(self);
     }
 };
@@ -687,9 +899,9 @@ pub const S2CPlayerInfoPacket = struct {
         try utils.writeVarInt(wr, @enumToInt(self.action));
 
         try utils.writeVarInt(wr, @intCast(i32, self.players.len));
-        for (self.players) |player| {
-            try wr.writeIntBig(u128, player.uuid.uuid);
-            switch (player.data) {
+        for (self.players) |p| {
+            try wr.writeIntBig(u128, p.uuid.uuid);
+            switch (p.data) {
                 .add_player => |data| {
                     try utils.writeByteArray(wr, data.name);
                     try utils.writeVarInt(wr, @intCast(i32, data.properties.len));

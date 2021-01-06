@@ -7,6 +7,9 @@ const zlm = @import("zlm").specializeOn(f64);
 const entity = @import("../entity/entity.zig");
 const UUID = @import("../uuid.zig").UUID;
 
+pub const inventory = @import("inventory.zig");
+const Inventory = inventory.Inventory;
+
 pub const Player = struct {
     alloc: *Allocator,
     base: *entity.Entity,
@@ -15,6 +18,9 @@ pub const Player = struct {
 
     last_chunk_x: i32,
     last_chunk_z: i32,
+
+    inventory: Inventory,
+    selected_hotbar_slot: u8,
 
     pub fn init(alloc: *Allocator) !Player {
         const base = try alloc.create(entity.Entity);
@@ -41,6 +47,9 @@ pub const Player = struct {
 
             .last_chunk_x = 0,
             .last_chunk_z = 0,
+
+            .inventory = Inventory{},
+            .selected_hotbar_slot = 0,
         };
     }
 

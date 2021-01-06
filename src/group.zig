@@ -105,18 +105,18 @@ pub const Group = struct {
 
         _ = self.player_count.decr();
         if (self.players.remove(player)) |entry| {
-            // const pkt = try packet.S2CPlayerInfoPacket.init(self.alloc);
-            // pkt.action = .remove_player;
-            // pkt.players = &[_]packet.S2CPlayerInfoPlayer{
-            //     .{
-            //         .uuid = entry.key.player.base.uuid,
+            const pkt = try packet.S2CPlayerInfoPacket.init(self.alloc);
+            pkt.action = .remove_player;
+            pkt.players = &[_]packet.S2CPlayerInfoPlayer{
+                .{
+                    .uuid = entry.key.player.base.uuid,
 
-            //         .data = .{ .remove_player = {} },
-            //     }
-            // };
-            // log.debug("{}", .{pkt});
-            // try self.server.sendPacketToAll(try pkt.encode(self.alloc), null);
-            // pkt.deinit(self.alloc);
+                    .data = .{ .remove_player = {} },
+                }
+            };
+            log.debug("{}", .{pkt});
+            try self.server.sendPacketToAll(try pkt.encode(self.alloc), null);
+            pkt.deinit(self.alloc);
         }
     }
 

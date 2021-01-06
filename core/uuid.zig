@@ -4,9 +4,13 @@ const rand = std.rand;
 // modified from https://github.com/ziglang/zig/blob/c177a7ca34d2a141fdbd9b6b829498952c4321cc/lib/std/uuid.zig
 pub const UUID = struct {
     version: enum {
-        v3, v4
+       zero, v3, v4
     },
     uuid: u128,
+
+    pub fn zero() UUID {
+        return UUID{ .version = .zero, .uuid = 0 };
+    }
 
     /// Creates a new v3 UUID
     pub fn newv3(input: []const u8) UUID {
@@ -39,6 +43,7 @@ pub const UUID = struct {
         buf[8] = '-';
         buf[13] = '-';
         switch (self.version) {
+            .zero => buf[14] = '0',
             .v3 => buf[14] = '3',
             .v4 => buf[14] = '4',
         }

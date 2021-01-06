@@ -15,6 +15,7 @@ const UUID = ladder_core.UUID;
 const nbt = ladder_core.nbt;
 const utils = ladder_core.utils;
 const world = ladder_core.world;
+const chat = ladder_core.chat;
 
 const Player = @import("player.zig").Player;
 const Server = @import("../server.zig").Server;
@@ -167,6 +168,21 @@ pub const NetworkHandler = struct {
                 const base_pkt = self.read_packets.get();
                 // handle a play packet
                 switch (base_pkt.id) {
+                    0x03 => {
+                        const pkt = try packet.C2SChatMessagePacket.decode(self.alloc, base_pkt);
+
+                        const gpkt = try packet.S2CChatMessagePacket.init(self.alloc);
+                        gpkt.message = chat.Text{
+                            .text = try std.mem.join(self.alloc, "", &[_][]const u8{"[", self.player.?.player.username, "] ", pkt.message}),
+                        };
+                        gpkt.sender = self.player.?.player.base.uuid;
+                        try self.player.?.group.?.server.sendPacketToAll(try gpkt.encode(self.alloc), null);
+                        self.alloc.free(gpkt.message.text);
+                        gpkt.deinit(self.alloc);
+
+                        pkt.deinit(self.alloc);
+                        base_pkt.deinit(self.alloc);
+                    },
                     // player position
                     0x12 => {
                         const player_held = self.player.?.player_lock.acquire();
@@ -188,6 +204,37 @@ pub const NetworkHandler = struct {
                         gpkt.on_ground = self.player.?.player.base.on_ground;
                         try self.player.?.group.?.sendPacketToAll(try gpkt.encode(self.alloc), self.player);
                         gpkt.deinit(self.alloc);
+                    },
+                    // player position and rotation
+                    0x13 => {
+                        const player_held = self.player.?.player_lock.acquire();
+                        defer player_held.release();
+                        const pkt = try packet.C2SPlayerPositionRotationPacket.decode(self.alloc, base_pkt);
+                        self.player.?.player.base.last_pos = self.player.?.player.base.pos;
+                        self.player.?.player.base.pos = zlm.vec3(pkt.x, pkt.y, pkt.z);
+                        self.player.?.player.base.last_look = self.player.?.player.base.look;
+                        self.player.?.player.base.look = zlm.vec2(pkt.yaw, pkt.pitch);
+                        self.player.?.player.base.on_ground = pkt.on_ground;
+                        pkt.deinit(self.alloc);
+                        base_pkt.deinit(self.alloc);
+
+                        const gpkt = try packet.S2CEntityPositionRotationPacket.init(self.alloc);
+                        gpkt.entity_id = self.player.?.player.base.entity_id;
+                        gpkt.delta = zlm.vec3(
+                            ((self.player.?.player.base.pos.x * 32 - self.player.?.player.base.last_pos.x * 32) * 128),
+                            ((self.player.?.player.base.pos.y * 32 - self.player.?.player.base.last_pos.y * 32) * 128),
+                            ((self.player.?.player.base.pos.z * 32 - self.player.?.player.base.last_pos.z * 32) * 128),
+                        );
+                        gpkt.look = self.player.?.player.base.look;
+                        gpkt.on_ground = self.player.?.player.base.on_ground;
+                        try self.player.?.group.?.sendPacketToAll(try gpkt.encode(self.alloc), self.player);
+                        gpkt.deinit(self.alloc);
+
+                        const gpkt2 = try packet.S2CEntityHeadLookPacket.init(self.alloc);
+                        gpkt2.entity_id = self.player.?.player.base.entity_id;
+                        gpkt2.look = self.player.?.player.base.look;
+                        try self.player.?.group.?.sendPacketToAll(try gpkt2.encode(self.alloc), self.player);
+                        gpkt2.deinit(self.alloc);
                     },
                     // player rotation
                     0x14 => {
@@ -223,6 +270,25 @@ pub const NetworkHandler = struct {
                         pkt.deinit(self.alloc);
                         base_pkt.deinit(self.alloc);
                     },
+                    // held item change
+                    0x25 => {
+                        const player_held = self.player.?.player_lock.acquire();
+                        defer player_held.release();
+                        const pkt = try packet.C2SHeldItemChangePacket.decode(self.alloc, base_pkt);
+                        self.player.?.player.selected_hotbar_slot = pkt.slot;
+                        pkt.deinit(self.alloc);
+                        base_pkt.deinit(self.alloc);
+                    },
+                    // creative inventory action
+                    0x28 => {
+                        const player_held = self.player.?.player_lock.acquire();
+                        defer player_held.release();
+                        const pkt = try packet.C2SCreativeInventoryActionPacket.decode(self.alloc, base_pkt);
+                        if (pkt.slot > 0 and pkt.slot <= 45) self.player.?.player.inventory.slots[@intCast(usize, pkt.slot)] = pkt.clicked_item;
+                        pkt.deinit(self.alloc);
+                        base_pkt.deinit(self.alloc);
+                    },
+                    // player hand animation
                     0x2c => {
                         const pkt = try packet.C2SAnimationPacket.decode(self.alloc, base_pkt);
                         
@@ -260,7 +326,12 @@ pub const NetworkHandler = struct {
                             5 => pos.x += 1,
                             else => {},
                         }
-                        _ = try self.player.?.group.?.setBlock(pos, 0x11);
+                        if (pos.toPacketPosition() != network.utils.toPacketPosition(self.player.?.player.base.pos)) {
+                            if (self.player.?.player.inventory.slots[@as(usize, self.player.?.player.selected_hotbar_slot) + 36]) |slot| {
+                                _ = try self.player.?.group.?.setBlock(pos, @intCast(world.block.BlockState, slot.id));
+                            } else if (self.player.?.player.inventory.slots[45]) |slot|
+                                _ = try self.player.?.group.?.setBlock(pos, @intCast(world.block.BlockState, slot.id));
+                        }
                         pkt.deinit(self.alloc);
                         base_pkt.deinit(self.alloc);
                     },
@@ -378,6 +449,7 @@ pub const NetworkHandler = struct {
 
         // send hand slot packet
         const spkt4 = try packet.S2CHeldItemChangePacket.init(self.alloc);
+        spkt4.slot = self.player.?.player.selected_hotbar_slot;
         log.debug("{}", .{spkt4});
         self.sendPacket(try spkt4.encode(self.alloc));
         spkt4.deinit(self.alloc);
