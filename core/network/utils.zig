@@ -69,5 +69,5 @@ pub fn writeJSONStruct(alloc: *Allocator, writer: anytype, value: anytype) !void
 }
 
 pub inline fn toPacketPosition(vec: zlm.Vec3) u64 {
-    return ((@floatToInt(u64, vec.x) & 0x3FFFFFF) << 38) | ((@floatToInt(u64, vec.z) & 0x3FFFFFF) << 12) | (@floatToInt(u64, vec.y) & 0xFFF);
+    return (@as(u64, @bitCast(u32, @floatToInt(i32, vec.x) & 0x3FFFFFF)) << 38) | (@as(u64, @bitCast(u32, @floatToInt(i32, vec.z) & 0x3FFFFFF)) << 12) | (@as(u64, @bitCast(u32, @floatToInt(i32, vec.y))) & 0xFFF);
 }
