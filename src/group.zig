@@ -251,7 +251,9 @@ pub const Group = struct {
         const chunk_x = @divFloor(pos.x, 16);
         const chunk_z = @divFloor(pos.z, 16);
 
-        var chunk = self.getChunk((@bitCast(u64, @as(i64, chunk_x)) << 32) | @bitCast(u32, chunk_z));
+        const held = self.chunks_lock.acquire();
+        defer held.release();
+        var chunk = self.chunks.get((@bitCast(u64, @as(i64, chunk_x)) << 32) | @bitCast(u32, chunk_z)).?;
         const changed = try chunk.setBlock(std.math.absCast(@mod(pos.x, 16)), @intCast(u32, pos.y), std.math.absCast(@mod(pos.z, 16)), block_state);
         if (changed) {
             const pkt = try packet.S2CBlockChangePacket.init(self.alloc);
