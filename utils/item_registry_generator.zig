@@ -60,7 +60,7 @@ pub fn main() !void {
                         try writer.writeAll("\" = Item{\n");
 
                         if (indexOfSlice([]const u8, block_names[0..], t.slice(json, stream.i - 1))) |pos| {
-                            try i2bm_writer.print("{}, ", .{pos - 3});
+                            try i2bm_writer.print("{}, ", .{pos - 4});
                         } else {
                             try i2bm_writer.writeAll("0, ");
                         }

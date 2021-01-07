@@ -59,7 +59,16 @@ pub fn main() !void {
     const b2dsm_writer = b2ds_mapping.writer();
     try b2dsm_writer.writeAll(
         \\pub const BlockToDefaultState = &[_]u16{
-        \\
+        \\    
+    );
+
+    // block to base state mapping
+    var b2bs_mapping = std.ArrayList(u8).init(alloc);
+    defer b2bs_mapping.deinit();
+    const b2bsm_writer = b2bs_mapping.writer();
+    try b2bsm_writer.writeAll(
+        \\pub const BlockToBaseState = &[_]u16{
+        \\    
     );
 
     // embed json data file
@@ -79,6 +88,8 @@ pub fn main() !void {
                         try writer.writeAll("pub const @\"");
                         try writer.writeAll(t.slice(json, stream.i - 1));
                         try writer.writeAll("\" = Block{\n");
+
+                        try b2bsm_writer.print("{}, ", .{current_state_id});
 
                         state = .block;
                     },
@@ -110,7 +121,7 @@ pub fn main() !void {
                         } else if (std.mem.eql(u8, slice, "default")) {
                             try writer.writeAll(",\n.default = true");
 
-                            try b2dsm_writer.print("{}, ", .{current_state_id});
+                            try b2dsm_writer.print("{}, ", .{current_state_id - 1});
                         } else if (std.mem.eql(u8, slice, "properties")) {
                             try writer.writeAll(".properties = &[_]Block.Property{\n");
                             state = .s_properties;
@@ -139,7 +150,8 @@ pub fn main() !void {
 
                         try s2bm_writer.print("{}, ", .{current_block_id});
 
-                        current_state_id = try std.fmt.parseUnsigned(u16, t.slice(json, stream.i - 1), 10);
+                        current_state_id += 1;
+                        // current_state_id = try std.fmt.parseUnsigned(u16, t.slice(json, stream.i - 1), 10);
                     },
                     else => {},
                 }
@@ -198,10 +210,12 @@ pub fn main() !void {
 
     try s2bm_writer.writeAll("\n};\n");
     try b2dsm_writer.writeAll("\n};\n");
+    try b2bsm_writer.writeAll("\n};\n");
 
     var file = try std.fs.cwd().createFile("blocks.zig", .{});
     defer file.close();
     try file.writeAll(s2b_mapping.toOwnedSlice());
     try file.writeAll(b2ds_mapping.toOwnedSlice());
+    try file.writeAll(b2bs_mapping.toOwnedSlice());
     try file.writeAll(output.toOwnedSlice());
 }

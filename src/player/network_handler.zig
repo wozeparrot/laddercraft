@@ -316,6 +316,9 @@ pub const NetworkHandler = struct {
                     },
                     // player block placement
                     0x2e => {
+                        const player_held = self.player.?.player_lock.acquire();
+                        defer player_held.release();
+
                         const pkt = try packet.C2SPlayerBlockPlacementPacket.decode(self.alloc, base_pkt);
                         var pos = pkt.position;
                         switch (pkt.face) {
@@ -327,7 +330,7 @@ pub const NetworkHandler = struct {
                             5 => pos.x += 1,
                             else => {},
                         }
-                        if (pos.x != @floatToInt(i32, self.player.?.player.base.pos.x) and pos.y != @floatToInt(i32, self.player.?.player.base.pos.y) and pos.z != @floatToInt(i32, self.player.?.player.base.pos.z)) {
+                        if (pos.x != @floatToInt(i32, std.math.floor(self.player.?.player.base.pos.x)) or pos.y != @floatToInt(i32, std.math.floor(self.player.?.player.base.pos.y)) or pos.z != @floatToInt(i32, std.math.floor(self.player.?.player.base.pos.z))) {
                             if (self.player.?.player.inventory.slots[@as(usize, self.player.?.player.selected_hotbar_slot) + 36]) |slot| {
                                 _ = try self.player.?.group.?.setBlock(pos, @intCast(world.block.BlockState, registry.BLOCKS.BlockToDefaultState[registry.ITEMS.ItemToBlock[@intCast(usize, slot.id)]]));
                             } else if (self.player.?.player.inventory.slots[45]) |slot|
