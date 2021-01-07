@@ -76,8 +76,8 @@ pub const S2CSpawnPlayerPacket = struct {
         try wr.writeIntBig(i64, @bitCast(i64, self.pos.x));
         try wr.writeIntBig(i64, @bitCast(i64, self.pos.y));
         try wr.writeIntBig(i64, @bitCast(i64, self.pos.z));
-        try wr.writeIntBig(i8, @floatToInt(i8, self.look.x));
-        try wr.writeIntBig(i8, @floatToInt(i8, self.look.y));
+        try wr.writeIntBig(i8, @bitCast(i8, @floatToInt(u8, (@mod(self.look.x, 360) / 360) * 256)));
+        try wr.writeIntBig(i8, @bitCast(i8, @floatToInt(u8, (@mod(self.look.y, 360) / 360) * 256)));
 
         self.base.data = array_list.toOwnedSlice();
         self.base.length = @intCast(i32, self.base.data.len) + 1;
