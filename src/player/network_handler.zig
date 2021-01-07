@@ -16,6 +16,7 @@ const nbt = ladder_core.nbt;
 const utils = ladder_core.utils;
 const world = ladder_core.world;
 const chat = ladder_core.chat;
+const registry = ladder_core.registry;
 
 const Player = @import("player.zig").Player;
 const Server = @import("../server.zig").Server;
@@ -326,11 +327,11 @@ pub const NetworkHandler = struct {
                             5 => pos.x += 1,
                             else => {},
                         }
-                        if (pos.toPacketPosition() != network.utils.toPacketPosition(self.player.?.player.base.pos)) {
+                        if (pos.x != @floatToInt(i32, self.player.?.player.base.pos.x) and pos.y != @floatToInt(i32, self.player.?.player.base.pos.y) and pos.z != @floatToInt(i32, self.player.?.player.base.pos.z)) {
                             if (self.player.?.player.inventory.slots[@as(usize, self.player.?.player.selected_hotbar_slot) + 36]) |slot| {
-                                _ = try self.player.?.group.?.setBlock(pos, @intCast(world.block.BlockState, slot.id));
+                                _ = try self.player.?.group.?.setBlock(pos, @intCast(world.block.BlockState, registry.BLOCKS.BlockToDefaultState[registry.ITEMS.ItemToBlock[@intCast(usize, slot.id)]]));
                             } else if (self.player.?.player.inventory.slots[45]) |slot|
-                                _ = try self.player.?.group.?.setBlock(pos, @intCast(world.block.BlockState, slot.id));
+                                _ = try self.player.?.group.?.setBlock(pos, @intCast(world.block.BlockState, registry.BLOCKS.BlockToDefaultState[registry.ITEMS.ItemToBlock[@intCast(usize, slot.id)]]));
                         }
                         pkt.deinit(self.alloc);
                         base_pkt.deinit(self.alloc);

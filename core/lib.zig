@@ -1,3 +1,4 @@
+pub const registry = @import("registry/registry.zig");
 pub const network = @import("network/network.zig");
 pub const chat = @import("chat/chat.zig");
 pub const game = @import("game/game.zig");
