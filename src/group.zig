@@ -104,7 +104,7 @@ pub const Group = struct {
         defer held.release();
 
         _ = self.player_count.decr();
-        if (self.players.remove(player)) |entry| {
+        if (self.players.swapRemove(player)) |entry| {
             const pkt = try packet.S2CPlayerInfoPacket.init(self.alloc);
             pkt.action = .remove_player;
             pkt.players = &[_]packet.S2CPlayerInfoPlayer{

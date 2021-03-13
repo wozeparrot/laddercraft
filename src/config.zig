@@ -3,7 +3,7 @@ const net = std.net;
 
 pub const config: Config = .{
     .bind_address = "0.0.0.0",
-    .bind_port = 25565,
+    .bind_port = 29999,
 
     .view_distance = 4,
     .seed = 1337,

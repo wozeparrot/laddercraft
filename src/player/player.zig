@@ -98,7 +98,7 @@ pub const Player = struct {
 
     pub fn run(self: *Player) void {
         self._run() catch |err| {
-            log.err("player: {}", .{@errorName(err)});
+            log.err("player: {s}", .{@errorName(err)});
         };
     }
 

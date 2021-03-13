@@ -27,8 +27,8 @@ pub const NetworkHandler = struct {
     write_frame: @Frame(NetworkHandler.write),
 
     conn: net.StreamServer.Connection,
-    reader: std.fs.File.Reader,
-    writer: std.fs.File.Writer,
+    reader: std.net.Stream.Reader,
+    writer: std.net.Stream.Writer,
 
     keep_alive_id: std.atomic.Int(u64),
     is_alive: std.atomic.Bool,
@@ -61,7 +61,7 @@ pub const NetworkHandler = struct {
 
     pub fn deinit(self: *NetworkHandler) void {
         self.is_alive.store(false, .SeqCst);
-        self.conn.file.close();
+        self.conn.stream.close();
 
         await self.read_frame;
         await self.write_frame;
@@ -80,11 +80,9 @@ pub const NetworkHandler = struct {
         self.read_packets.init(self.read_packets_buf[0..]);
         self.write_packets.init(self.write_packets_buf[0..]);
 
-        self.reader = self.conn.file.reader();
-        self.writer = self.conn.file.writer();
+        self.reader = self.conn.stream.reader();
+        self.writer = self.conn.stream.writer();
 
-        // try std.event.Loop.instance.?.runDetached(self.alloc, NetworkHandler.read, .{ self, server });
-        // try std.event.Loop.instance.?.runDetached(self.alloc, NetworkHandler.write, .{self});
         self.read_frame = async self.read(server);
         self.write_frame = async self.write();
         try std.event.Loop.instance.?.runDetached(self.alloc, NetworkHandler.handle, .{ self, server });
@@ -92,7 +90,8 @@ pub const NetworkHandler = struct {
 
     pub fn read(self: *NetworkHandler, server: *Server) void {
         self._read(server) catch |err| {
-            log.err("network_handler - read(): {}", .{@errorName(err)});
+            log.err("network_handler - read(): {s}", .{@errorName(err)});
+            self.is_alive.store(false, .SeqCst);
         };
     }
 
@@ -117,7 +116,8 @@ pub const NetworkHandler = struct {
 
     pub fn write(self: *NetworkHandler) void {
         self._write() catch |err| {
-            log.err("network_handler - write(): {}", .{@errorName(err)});
+            log.err("network_handler - write(): {s}", .{@errorName(err)});
+            self.is_alive.store(false, .SeqCst);
         };
     }
 
@@ -131,7 +131,7 @@ pub const NetworkHandler = struct {
 
     pub fn handle(self: *NetworkHandler, server: *Server) void {
         self._handle(server) catch |err| {
-            log.err("network_handler - handle(): {}", .{@errorName(err)});
+            log.err("network_handler - handle(): {s}", .{@errorName(err)});
         };
 
         if (self.player == null) self.deinit();
@@ -174,7 +174,7 @@ pub const NetworkHandler = struct {
 
                         const gpkt = try packet.S2CChatMessagePacket.init(self.alloc);
                         gpkt.message = chat.Text{
-                            .text = try std.mem.join(self.alloc, "", &[_][]const u8{"[", self.player.?.player.username, "] ", pkt.message}),
+                            .text = try std.mem.join(self.alloc, "", &[_][]const u8{ "[", self.player.?.player.username, "] ", pkt.message }),
                         };
                         gpkt.sender = self.player.?.player.base.uuid;
                         try self.player.?.group.?.server.sendPacketToAll(try gpkt.encode(self.alloc), null);
@@ -192,6 +192,9 @@ pub const NetworkHandler = struct {
                         self.player.?.player.base.last_pos = self.player.?.player.base.pos;
                         self.player.?.player.base.pos = zlm.vec3(pkt.x, pkt.y, pkt.z);
                         self.player.?.player.base.on_ground = pkt.on_ground;
+
+                        log.debug("{}", .{pkt});
+
                         pkt.deinit(self.alloc);
                         base_pkt.deinit(self.alloc);
 
@@ -292,7 +295,7 @@ pub const NetworkHandler = struct {
                     // player hand animation
                     0x2c => {
                         const pkt = try packet.C2SAnimationPacket.decode(self.alloc, base_pkt);
-                        
+
                         switch (pkt.hand) {
                             0 => {
                                 const gpkt = try packet.S2CEntityAnimationPacket.init(self.alloc);

@@ -63,11 +63,11 @@ pub fn writeJSONStruct(alloc: *Allocator, writer: anytype, value: anytype) !void
     var array_list = std.ArrayList(u8).init(alloc);
     defer array_list.deinit();
 
-    try std.json.stringify(value, .{}, array_list.outStream());
+    try std.json.stringify(value, .{}, array_list.writer());
 
     try writeByteArray(writer, array_list.toOwnedSlice());
 }
 
-pub inline fn toPacketPosition(vec: zlm.Vec3) u64 {
+pub fn toPacketPosition(vec: zlm.Vec3) callconv(.Inline) u64 {
     return (@as(u64, @bitCast(u32, @floatToInt(i32, vec.x) & 0x3FFFFFF)) << 38) | (@as(u64, @bitCast(u32, @floatToInt(i32, vec.z) & 0x3FFFFFF)) << 12) | (@as(u64, @bitCast(u32, @floatToInt(i32, vec.y))) & 0xFFF);
 }

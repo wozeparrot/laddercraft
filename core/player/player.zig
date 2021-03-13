@@ -57,11 +57,11 @@ pub const Player = struct {
         self.alloc.destroy(self.base);
     }
 
-    pub inline fn chunkX(self: *Player) i32 {
+    pub fn chunkX(self: *Player) callconv(.Inline) i32 {
         return @divFloor(@floatToInt(i32, self.base.pos.x), 16);
     }
 
-    pub inline fn chunkZ(self: *Player) i32 {
+    pub fn chunkZ(self: *Player) callconv(.Inline) i32 {
         return @divFloor(@floatToInt(i32, self.base.pos.z), 16);
     }
 };

@@ -88,7 +88,7 @@ pub const Server = struct {
 
             // create network_handler
             const network_handler = NetworkHandler.init(self.alloc, conn) catch |err| {
-                conn.file.close();
+                conn.stream.close();
                 continue;
             };
 
@@ -98,7 +98,7 @@ pub const Server = struct {
             held.release();
 
             network_handler.start(self) catch |err| {
-                conn.file.close();
+                conn.stream.close();
                 continue;
             };
         }

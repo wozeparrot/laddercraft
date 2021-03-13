@@ -90,7 +90,7 @@ pub const Chunk = struct {
         return highest;
     }
 
-    pub inline fn chunkID(self: *Chunk) u64 {
+    pub fn chunkID(self: *Chunk) callconv(.Inline) u64 {
         return (@bitCast(u64, @as(i64, self.x)) << 32) | @bitCast(u32, self.z);
     }
 };
