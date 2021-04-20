@@ -16,7 +16,6 @@ const NetworkHandler = @import("player/network_handler.zig").NetworkHandler;
 const Group = @import("group.zig").Group;
 
 pub const Server = struct {
-    frame: @Frame(Server.run),
     alloc: *Allocator,
 
     seed: u64,
@@ -34,7 +33,6 @@ pub const Server = struct {
 
     pub fn init(alloc: *Allocator, seed: u64) !Server {
         return Server{
-            .frame = undefined,
             .alloc = alloc,
 
             .seed = seed,
