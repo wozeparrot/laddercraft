@@ -3,7 +3,7 @@ const json = std.json;
 
 pub const Text = struct {
     text: []const u8,
-    
+
     bold: bool = false,
     italic: bool = false,
     underlined: bool = false,

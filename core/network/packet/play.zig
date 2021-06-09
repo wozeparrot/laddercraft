@@ -327,7 +327,7 @@ pub const C2SPlayerDiggingPacket = struct {
         const brd = base.toStream().reader();
 
         const status = try utils.readVarInt(brd);
-        
+
         const position = world.block.BlockPos.fromPacketPosition(try brd.readIntBig(u64));
         const face = try brd.readByte();
 
@@ -455,8 +455,8 @@ pub const S2CChunkDataPacket = struct {
         try wr.writeByte(@boolToInt(self.full_chunk));
 
         var bitmask: u32 = 0;
-        for (self.chunk.sections.items()) |section| {
-            bitmask |= @as(u32, 1) << @intCast(u5, section.key);
+        for (self.chunk.sections.keys()) |key| {
+            bitmask |= @as(u32, 1) << @intCast(u5, key);
         }
         try utils.writeVarInt(wr, @bitCast(i32, bitmask));
 
@@ -476,7 +476,7 @@ pub const S2CChunkDataPacket = struct {
                     .{ .long_array = .{
                         .name = "MOTION_BLOCKING",
                         .payload = @ptrCast([*]i64, heightmap_data_array.data.ptr)[0..36],
-                    }},
+                    } },
                 },
             },
         };
@@ -487,8 +487,7 @@ pub const S2CChunkDataPacket = struct {
         var cs_data = std.ArrayList(u8).init(alloc);
         defer cs_data.deinit();
         var cs_wr = cs_data.writer();
-        for (self.chunk.sections.items()) |entry| {
-            const section = entry.value;
+        for (self.chunk.sections.values()) |section| {
             try cs_wr.writeIntBig(i16, @intCast(i16, section.block_count));
             try cs_wr.writeByte(section.data.element_bits);
             try utils.writeVarInt(cs_wr, @intCast(i32, section.data.data.len));
@@ -801,7 +800,7 @@ pub const C2SPlayerBlockPlacementPacket = struct {
     base: *Packet,
 
     hand: i32,
-    
+
     position: world.block.BlockPos,
     face: i32,
 
@@ -815,7 +814,7 @@ pub const C2SPlayerBlockPlacementPacket = struct {
         const brd = base.toStream().reader();
 
         const hand = try utils.readVarInt(brd);
-        
+
         const position = world.block.BlockPos.fromPacketPosition(try brd.readIntBig(u64));
         const face = try utils.readVarInt(brd);
 
@@ -830,14 +829,14 @@ pub const C2SPlayerBlockPlacementPacket = struct {
             .base = base,
 
             .hand = hand,
-            
+
             .position = position,
             .face = face,
-            
+
             .cursor_x = cursor_x,
             .cursor_y = cursor_y,
             .cursor_z = cursor_z,
-            
+
             .inside_block = inside_block,
         };
         return packet;

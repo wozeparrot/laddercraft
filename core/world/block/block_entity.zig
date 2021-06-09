@@ -1,3 +1,1 @@
-pub const BlockEntity = struct {
-
-};
+pub const BlockEntity = struct {};

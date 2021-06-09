@@ -20,7 +20,7 @@ pub const Server = struct {
 
     seed: u64,
     random: rand.Random,
-    current_entity_id: std.atomic.Int(i32),
+    current_entity_id: std.atomic.Atomic(i32),
 
     stream_server: net.StreamServer,
     holding: std.AutoArrayHashMap(*NetworkHandler, void),
@@ -29,7 +29,7 @@ pub const Server = struct {
     groups: std.AutoArrayHashMap(*Group, void),
     groups_lock: std.event.Lock,
 
-    is_alive: std.atomic.Bool,
+    is_alive: std.atomic.Atomic(bool),
 
     pub fn init(alloc: *Allocator, seed: u64) !Server {
         return Server{
@@ -37,7 +37,7 @@ pub const Server = struct {
 
             .seed = seed,
             .random = rand.DefaultPrng.init(seed).random,
-            .current_entity_id = std.atomic.Int(i32).init(0),
+            .current_entity_id = std.atomic.Atomic(i32).init(0),
 
             .stream_server = net.StreamServer.init(.{ .reuse_address = true }),
             .holding = std.AutoArrayHashMap(*NetworkHandler, void).init(alloc),
@@ -46,7 +46,7 @@ pub const Server = struct {
             .groups = std.AutoArrayHashMap(*Group, void).init(alloc),
             .groups_lock = std.event.Lock{},
 
-            .is_alive = std.atomic.Bool.init(true),
+            .is_alive = std.atomic.Atomic(bool).init(true),
         };
     }
 
@@ -56,15 +56,15 @@ pub const Server = struct {
         self.stream_server.deinit();
 
         const groups_held = self.groups_lock.acquire();
-        for (self.groups.items()) |entry| {
-            entry.key.deinit();
+        for (self.groups.keys()) |key| {
+            key.deinit();
         }
         groups_held.release();
         self.groups.deinit();
 
         const holding_held = self.holding_lock.acquire();
-        for (self.holding.items()) |entry| {
-            entry.key.deinit();
+        for (self.holding.keys()) |key| {
+            key.deinit();
         }
         holding_held.release();
         self.holding.deinit();
@@ -123,8 +123,8 @@ pub const Server = struct {
             try group.start();
             try self.groups.put(group, {});
         } else {
-            for (self.groups.items()) |entry| {
-                try entry.key.addPlayer(player);
+            for (self.groups.keys()) |key| {
+                try key.addPlayer(player);
                 break;
             }
         }
@@ -134,8 +134,8 @@ pub const Server = struct {
         const held = self.groups_lock.acquire();
         defer held.release();
 
-        for (self.groups.items()) |entry| {
-            try entry.key.sendPacketToAll(pkt, player);
+        for (self.groups.keys()) |key| {
+            try key.sendPacketToAll(pkt, player);
         }
     }
 
@@ -143,12 +143,12 @@ pub const Server = struct {
         const held = self.groups_lock.acquire();
         defer held.release();
 
-        for (self.groups.items()) |entry| {
-            try entry.key.sendPlayersToPlayer(player);
+        for (self.groups.keys()) |key| {
+            try key.sendPlayersToPlayer(player);
         }
     }
 
     pub fn nextEntityId(self: *Server) i32 {
-        return self.current_entity_id.incr();
+        return self.current_entity_id.fetchAdd(1, std.atomic.Ordering.Monotonic);
     }
 };
