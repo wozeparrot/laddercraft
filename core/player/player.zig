@@ -64,4 +64,12 @@ pub const Player = struct {
     pub fn chunkZ(self: *Player) callconv(.Inline) i32 {
         return @divFloor(@floatToInt(i32, self.base.pos.z), 16);
     }
+
+    /// Checks if a point will collide with the player
+    pub fn checkCollision(self: *Player, p: zlm.Vec3) bool {
+        if (p.x > self.base.pos.x + 0.5 and p.x < self.base.pos.x - 0.5 and
+            p.z > self.base.pos.z + 0.5 and p.z < self.base.pos.z - 0.5 and
+            p.y > self.base.pos.y + 2.0 and p.y < self.base.pos.y - 0.0) return false;
+        return true;
+    }
 };

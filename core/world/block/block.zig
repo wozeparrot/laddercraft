@@ -18,6 +18,14 @@ pub const BlockPos = struct {
         };
     }
 
+    pub fn toVec3(self: BlockPos) zlm.Vec3 {
+        return zlm.Vec3{
+            .x = @intToFloat(f64, self.x),
+            .y = @intToFloat(f64, self.y),
+            .z = @intToFloat(f64, self.z),
+        };
+    }
+
     pub fn fromPacketPosition(position: u64) BlockPos {
         const x = @bitCast(i32, @truncate(u32, position >> 38));
         const y = @bitCast(i32, @truncate(u32, position & 0xFFF));
