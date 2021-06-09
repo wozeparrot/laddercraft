@@ -20,7 +20,7 @@ pub const Chunk = struct {
         const chunk = try alloc.create(Chunk);
         chunk.* = Chunk{
             .alloc = alloc,
-            
+
             .sections = std.AutoArrayHashMap(u8, ChunkSection).init(alloc),
             .block_entities = std.AutoArrayHashMap(block.BlockPos, block.BlockEntity).init(alloc),
 
@@ -48,7 +48,7 @@ pub const Chunk = struct {
     }
 
     pub fn deinit(self: *Chunk) void {
-        for (self.sections.items()) |*entry| entry.value.deinit(self.alloc);
+        for (self.sections.values()) |*value| value.deinit(self.alloc);
         self.sections.deinit();
         self.block_entities.deinit();
 
@@ -78,12 +78,13 @@ pub const Chunk = struct {
 
     pub fn getHighestBlockSection(self: *Chunk, x: u32, z: u32) u32 {
         var highest: u32 = 0;
-        for (self.sections.items()) |*section| {
+        var iterator = self.sections.iterator();
+        while (iterator.next()) |section| {
             var y: u32 = 15;
             while (y > 0) : (y -= 1) {
-                const block_state = section.value.getBlock(x, y, z);
-                if (block_state != 0 and highest < y + section.key * 16) {
-                    highest = section.key * 16;
+                const block_state = section.value_ptr.getBlock(x, y, z);
+                if (block_state != 0 and highest < y + section.key_ptr.* * 16) {
+                    highest = section.key_ptr.* * 16;
                 }
             }
         }

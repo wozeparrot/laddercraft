@@ -13,7 +13,7 @@ pub fn readVarInt(reader: anytype) !i32 {
     while ((read & 0b10000000) != 0) {
         var value: u32 = (read & 0b01111111);
         result |= (value << @intCast(u5, 7 * num_read));
-        
+
         num_read += 1;
         read = try reader.readByte();
     }

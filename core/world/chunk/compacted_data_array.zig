@@ -84,6 +84,4 @@ test "CompactedDataArray" {
 }
 
 // Compacted Data Array but with a Palette
-pub const PalettedDataArray = struct {
-
-};
+pub const PalettedDataArray = struct {};

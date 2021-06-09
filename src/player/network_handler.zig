@@ -30,8 +30,8 @@ pub const NetworkHandler = struct {
     reader: std.net.Stream.Reader,
     writer: std.net.Stream.Writer,
 
-    keep_alive_id: std.atomic.Int(u64),
-    is_alive: std.atomic.Bool,
+    keep_alive_id: std.atomic.Atomic(u64),
+    is_alive: std.atomic.Atomic(bool),
     player: ?*Player = null,
 
     read_packets: *std.event.Channel(*packet.Packet),
@@ -50,8 +50,8 @@ pub const NetworkHandler = struct {
             .reader = undefined,
             .writer = undefined,
 
-            .keep_alive_id = std.atomic.Int(u64).init(0),
-            .is_alive = std.atomic.Bool.init(true),
+            .keep_alive_id = std.atomic.Atomic(u64).init(0),
+            .is_alive = std.atomic.Atomic(bool).init(true),
 
             .read_packets = try alloc.create(std.event.Channel(*packet.Packet)),
             .write_packets = try alloc.create(std.event.Channel(*packet.Packet)),
@@ -91,7 +91,6 @@ pub const NetworkHandler = struct {
     pub fn read(self: *NetworkHandler, server: *Server) void {
         self._read(server) catch |err| {
             log.err("network_handler - read(): {s}", .{@errorName(err)});
-            self.is_alive.store(false, .SeqCst);
         };
     }
 
@@ -146,7 +145,7 @@ pub const NetworkHandler = struct {
         if (handshake_return.completed) {
             // remove from server holding
             const held = server.holding_lock.acquire();
-            server.holding.removeAssertDiscard(self);
+            _ = server.holding.swapRemove(self);
             held.release();
 
             // create player
@@ -343,7 +342,7 @@ pub const NetworkHandler = struct {
                         base_pkt.deinit(self.alloc);
                     },
                     else => {
-                        log.err("Unknown play packet: {}", .{base_pkt});
+                        log.err("Unknown play packet: {s}", .{base_pkt});
                         base_pkt.deinit(self.alloc);
                     },
                 }
@@ -436,28 +435,32 @@ pub const NetworkHandler = struct {
         spkt.gamemode = .{ .mode = .creative, .hardcore = false };
         spkt.dimension_codec = network.BASIC_DIMENSION_CODEC;
         spkt.dimension = network.BASIC_DIMENSION;
-        log.debug("{}", .{spkt});
+        // this oddly causes the compiler to throw:
+        //
+        // error: '@Frame(std.fmt.formatType)' depends on itself
+        //
+        // log.info("{}", .{spkt});
         self.sendPacket(try spkt.encode(self.alloc));
         spkt.deinit(self.alloc);
 
         // send player position look packet
         const spkt2 = try packet.S2CPlayerPositionLookPacket.init(self.alloc);
         spkt2.pos = self.player.?.player.base.pos;
-        log.debug("{}", .{spkt2});
+        //log.debug("{any}", .{spkt2});
         self.sendPacket(try spkt2.encode(self.alloc));
         spkt2.deinit(self.alloc);
 
         // send spawn position packet
         const spkt3 = try packet.S2CSpawnPositionPacket.init(self.alloc);
         spkt3.pos = self.player.?.player.base.pos;
-        log.debug("{}", .{spkt3});
+        //log.debug("{any}", .{spkt3});
         self.sendPacket(try spkt3.encode(self.alloc));
         spkt3.deinit(self.alloc);
 
         // send hand slot packet
         const spkt4 = try packet.S2CHeldItemChangePacket.init(self.alloc);
         spkt4.slot = self.player.?.player.selected_hotbar_slot;
-        log.debug("{}", .{spkt4});
+        //log.debug("{any}", .{spkt4});
         self.sendPacket(try spkt4.encode(self.alloc));
         spkt4.deinit(self.alloc);
     }
