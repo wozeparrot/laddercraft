@@ -13,7 +13,7 @@ pub fn readVarInt(reader: anytype) !i32 {
     while ((read & 0b10000000) != 0) {
         var value: u32 = (read & 0b01111111);
         result |= (value << @intCast(u5, 7 * num_read));
-        
+
         num_read += 1;
         read = try reader.readByte();
     }
@@ -63,7 +63,7 @@ pub fn writeJSONStruct(alloc: *Allocator, writer: anytype, value: anytype) !void
     var array_list = std.ArrayList(u8).init(alloc);
     defer array_list.deinit();
 
-    try std.json.stringify(value, .{}, array_list.outStream());
+    try std.json.stringify(value, .{}, array_list.writer());
 
     try writeByteArray(writer, array_list.toOwnedSlice());
 }

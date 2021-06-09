@@ -20,12 +20,12 @@ pub const Group = struct {
 
     players: std.AutoArrayHashMap(*Player, void),
     players_lock: std.event.Lock,
-    player_count: std.atomic.Int(u32),
+    player_count: std.atomic.Atomic(u32),
 
     chunks: std.AutoArrayHashMap(u64, *Chunk),
     chunks_lock: std.event.Lock,
 
-    is_alive: std.atomic.Bool,
+    is_alive: std.atomic.Atomic(bool),
 
     pub fn init(alloc: *Allocator, server: *Server) !*Group {
         const group = try alloc.create(Group);
@@ -36,12 +36,12 @@ pub const Group = struct {
 
             .players = std.AutoArrayHashMap(*Player, void).init(alloc),
             .players_lock = std.event.Lock{},
-            .player_count = std.atomic.Int(u32).init(0),
+            .player_count = std.atomic.Atomic(u32).init(0),
 
             .chunks = std.AutoArrayHashMap(u64, *Chunk).init(alloc),
             .chunks_lock = std.event.Lock{},
 
-            .is_alive = std.atomic.Bool.init(true),
+            .is_alive = std.atomic.Atomic(bool).init(true),
         };
         return group;
     }
@@ -50,15 +50,15 @@ pub const Group = struct {
         self.is_alive.store(false, .SeqCst);
 
         const players_held = self.players_lock.acquire();
-        for (self.players.items()) |entry| {
-            entry.key.deinit();
+        for (self.players.keys()) |key| {
+            key.deinit();
         }
         players_held.release();
         self.players.deinit();
 
         const chunks_held = self.chunks_lock.acquire();
-        for (self.chunks.items()) |entry| {
-            entry.value.deinit();
+        for (self.chunks.values()) |value| {
+            value.deinit();
         }
         chunks_held.release();
         self.chunks.deinit();
@@ -78,13 +78,13 @@ pub const Group = struct {
 
     pub fn _run(self: *Group) !void {
         while (self.is_alive.load(.Monotonic)) {
-            if (self.player_count.get() == 0) {
+            if (self.player_count.value == 0) {
                 self.is_alive.store(false, .SeqCst);
             }
         }
 
         const held = self.server.groups_lock.acquire();
-        self.server.groups.removeAssertDiscard(self);
+        _ = self.server.groups.swapRemove(self);
         held.release();
         self.deinit();
     }
@@ -93,7 +93,7 @@ pub const Group = struct {
         const held = self.players_lock.acquire();
         defer held.release();
 
-        _ = self.player_count.incr();
+        _ = self.player_count.fetchAdd(1, .Monotonic);
         try self.players.put(player, {});
 
         player.group = self;
@@ -103,17 +103,15 @@ pub const Group = struct {
         const held = self.players_lock.acquire();
         defer held.release();
 
-        _ = self.player_count.decr();
-        if (self.players.remove(player)) |entry| {
+        _ = self.player_count.fetchSub(1, .Monotonic);
+        if (self.players.fetchSwapRemove(player)) |entry| {
             const pkt = try packet.S2CPlayerInfoPacket.init(self.alloc);
             pkt.action = .remove_player;
-            pkt.players = &[_]packet.S2CPlayerInfoPlayer{
-                .{
-                    .uuid = entry.key.player.base.uuid,
+            pkt.players = &[_]packet.S2CPlayerInfoPlayer{.{
+                .uuid = entry.key.player.base.uuid,
 
-                    .data = .{ .remove_player = {} },
-                }
-            };
+                .data = .{ .remove_player = {} },
+            }};
             log.debug("{}", .{pkt});
             try self.server.sendPacketToAll(try pkt.encode(self.alloc), null);
             pkt.deinit(self.alloc);
@@ -123,9 +121,9 @@ pub const Group = struct {
     pub fn sendPacketToAll(self: *Group, pkt: *packet.Packet, player: ?*Player) !void {
         const held = self.players_lock.acquire();
         defer held.release();
-        for (self.players.items()) |entry| {
-            if (player) |p| if (entry.key == p) continue;
-            entry.key.network_handler.sendPacket(try pkt.copy(self.alloc));
+        for (self.players.keys()) |key| {
+            if (player) |p| if (key == p) continue;
+            key.network_handler.sendPacket(try pkt.copy(self.alloc));
         }
         pkt.deinit(self.alloc);
     }
@@ -133,18 +131,18 @@ pub const Group = struct {
     pub fn sendPlayersToPlayer(self: *Group, player: *Player) !void {
         const held = self.players_lock.acquire();
         defer held.release();
-        for (self.players.items()) |entry| {
-            const player_held = entry.key.player_lock.acquire();
+        for (self.players.keys()) |key| {
+            const player_held = key.player_lock.acquire();
             defer player_held.release();
 
             const pkt = try packet.S2CPlayerInfoPacket.init(self.alloc);
             pkt.action = .add_player;
             pkt.players = &[_]packet.S2CPlayerInfoPlayer{.{
-                .uuid = entry.key.player.base.uuid,
+                .uuid = key.player.base.uuid,
 
                 .data = .{
                     .add_player = .{
-                        .name = entry.key.player.username,
+                        .name = key.player.username,
                         .properties = &[0]packet.S2CPlayerInfoProperties{},
                         .gamemode = 0,
                         .ping = 0,
@@ -156,13 +154,13 @@ pub const Group = struct {
             player.network_handler.sendPacket(try pkt.encode(self.alloc));
             pkt.deinit(self.alloc);
 
-            if (entry.key == player) continue;
+            if (key == player) continue;
             if (self.players.contains(player)) {
                 const pkt2 = try packet.S2CSpawnPlayerPacket.init(self.alloc);
-                pkt2.entity_id = entry.key.player.base.entity_id;
-                pkt2.uuid = entry.key.player.base.uuid;
-                pkt2.pos = entry.key.player.base.pos;
-                pkt2.look = entry.key.player.base.look;
+                pkt2.entity_id = key.player.base.entity_id;
+                pkt2.uuid = key.player.base.uuid;
+                pkt2.pos = key.player.base.pos;
+                pkt2.look = key.player.base.look;
                 log.debug("{}", .{pkt2});
                 player.network_handler.sendPacket(try pkt2.encode(self.alloc));
                 pkt2.deinit(self.alloc);
@@ -207,19 +205,19 @@ pub const Group = struct {
                     try needed_chunks.append(chunk_id);
                 } else {
                     try loaded_chunks.append(chunk_id);
-                    player.loaded_chunks.removeAssertDiscard(chunk_id);
+                    _ = player.loaded_chunks.swapRemove(chunk_id);
                 }
             }
         }
 
         const chunks_held = player.loaded_chunks_lock.acquire();
-        for (player.loaded_chunks.items()) |entry| {
+        for (player.loaded_chunks.keys()) |key| {
             const pkt = try packet.S2CUnloadChunkPacket.init(self.alloc);
-            pkt.chunk_x = @bitCast(i32, @truncate(u32, entry.key >> 32));
-            pkt.chunk_z = @bitCast(i32, @truncate(u32, entry.key));
+            pkt.chunk_x = @bitCast(i32, @truncate(u32, key >> 32));
+            pkt.chunk_z = @bitCast(i32, @truncate(u32, key));
             player.network_handler.sendPacket(try pkt.encode(self.alloc));
             pkt.deinit(self.alloc);
-            player.loaded_chunks.removeAssertDiscard(entry.key);
+            _ = player.loaded_chunks.swapRemove(key);
         }
         chunks_held.release();
 

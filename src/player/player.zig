@@ -62,21 +62,13 @@ pub const Player = struct {
         // send player info to all players on server
         const pkt = try packet.S2CPlayerInfoPacket.init(self.alloc);
         pkt.action = .add_player;
-        pkt.players = &[_]packet.S2CPlayerInfoPlayer{
-            .{
-                .uuid = self.player.base.uuid,
-
-                .data = .{
-                    .add_player = .{
-                        .name = self.player.username,
-                        .properties = &[0]packet.S2CPlayerInfoProperties{},
-                        .gamemode = 0,
-                        .ping = 0,
-                        .display_name = null,
-                    }
-                }
-            }
-        };
+        pkt.players = &[_]packet.S2CPlayerInfoPlayer{.{ .uuid = self.player.base.uuid, .data = .{ .add_player = .{
+            .name = self.player.username,
+            .properties = &[0]packet.S2CPlayerInfoProperties{},
+            .gamemode = 0,
+            .ping = 0,
+            .display_name = null,
+        } } }};
         log.debug("{}", .{pkt});
         try self.group.?.server.sendPacketToAll(try pkt.encode(self.alloc), null);
         pkt.deinit(self.alloc);
@@ -98,7 +90,7 @@ pub const Player = struct {
 
     pub fn run(self: *Player) void {
         self._run() catch |err| {
-            log.err("player: {}", .{@errorName(err)});
+            log.err("player: {s}", .{@errorName(err)});
         };
     }
 
@@ -108,7 +100,7 @@ pub const Player = struct {
                 var pkt = try packet.S2CKeepAlivePacket.init(self.alloc);
                 defer pkt.deinit(self.alloc);
                 pkt.id = 0;
-                self.network_handler.keep_alive_id.set(pkt.id);
+                self.network_handler.keep_alive_id.store(pkt.id, .Monotonic);
                 self.network_handler.sendPacket(try pkt.encode(self.alloc));
                 self.keep_alive.reset();
             }

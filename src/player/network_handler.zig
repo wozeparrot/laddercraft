@@ -27,11 +27,11 @@ pub const NetworkHandler = struct {
     write_frame: @Frame(NetworkHandler.write),
 
     conn: net.StreamServer.Connection,
-    reader: std.fs.File.Reader,
-    writer: std.fs.File.Writer,
+    reader: std.net.Stream.Reader,
+    writer: std.net.Stream.Writer,
 
-    keep_alive_id: std.atomic.Int(u64),
-    is_alive: std.atomic.Bool,
+    keep_alive_id: std.atomic.Atomic(u64),
+    is_alive: std.atomic.Atomic(bool),
     player: ?*Player = null,
 
     read_packets: *std.event.Channel(*packet.Packet),
@@ -50,8 +50,8 @@ pub const NetworkHandler = struct {
             .reader = undefined,
             .writer = undefined,
 
-            .keep_alive_id = std.atomic.Int(u64).init(0),
-            .is_alive = std.atomic.Bool.init(true),
+            .keep_alive_id = std.atomic.Atomic(u64).init(0),
+            .is_alive = std.atomic.Atomic(bool).init(true),
 
             .read_packets = try alloc.create(std.event.Channel(*packet.Packet)),
             .write_packets = try alloc.create(std.event.Channel(*packet.Packet)),
@@ -61,7 +61,7 @@ pub const NetworkHandler = struct {
 
     pub fn deinit(self: *NetworkHandler) void {
         self.is_alive.store(false, .SeqCst);
-        self.conn.file.close();
+        self.conn.stream.close();
 
         await self.read_frame;
         await self.write_frame;
@@ -80,8 +80,8 @@ pub const NetworkHandler = struct {
         self.read_packets.init(self.read_packets_buf[0..]);
         self.write_packets.init(self.write_packets_buf[0..]);
 
-        self.reader = self.conn.file.reader();
-        self.writer = self.conn.file.writer();
+        self.reader = self.conn.stream.reader();
+        self.writer = self.conn.stream.writer();
 
         // try std.event.Loop.instance.?.runDetached(self.alloc, NetworkHandler.read, .{ self, server });
         // try std.event.Loop.instance.?.runDetached(self.alloc, NetworkHandler.write, .{self});
@@ -92,7 +92,7 @@ pub const NetworkHandler = struct {
 
     pub fn read(self: *NetworkHandler, server: *Server) void {
         self._read(server) catch |err| {
-            log.err("network_handler - read(): {}", .{@errorName(err)});
+            log.err("network_handler - read(): {s}", .{@errorName(err)});
         };
     }
 
@@ -117,7 +117,7 @@ pub const NetworkHandler = struct {
 
     pub fn write(self: *NetworkHandler) void {
         self._write() catch |err| {
-            log.err("network_handler - write(): {}", .{@errorName(err)});
+            log.err("network_handler - write(): {s}", .{@errorName(err)});
         };
     }
 
@@ -131,7 +131,7 @@ pub const NetworkHandler = struct {
 
     pub fn handle(self: *NetworkHandler, server: *Server) void {
         self._handle(server) catch |err| {
-            log.err("network_handler - handle(): {}", .{@errorName(err)});
+            log.err("network_handler - handle(): {s}", .{@errorName(err)});
         };
 
         if (self.player == null) self.deinit();
@@ -146,7 +146,7 @@ pub const NetworkHandler = struct {
         if (handshake_return.completed) {
             // remove from server holding
             const held = server.holding_lock.acquire();
-            server.holding.removeAssertDiscard(self);
+            _ = server.holding.swapRemove(self);
             held.release();
 
             // create player
@@ -174,7 +174,7 @@ pub const NetworkHandler = struct {
 
                         const gpkt = try packet.S2CChatMessagePacket.init(self.alloc);
                         gpkt.message = chat.Text{
-                            .text = try std.mem.join(self.alloc, "", &[_][]const u8{"[", self.player.?.player.username, "] ", pkt.message}),
+                            .text = try std.mem.join(self.alloc, "", &[_][]const u8{ "[", self.player.?.player.username, "] ", pkt.message }),
                         };
                         gpkt.sender = self.player.?.player.base.uuid;
                         try self.player.?.group.?.server.sendPacketToAll(try gpkt.encode(self.alloc), null);
@@ -292,7 +292,7 @@ pub const NetworkHandler = struct {
                     // player hand animation
                     0x2c => {
                         const pkt = try packet.C2SAnimationPacket.decode(self.alloc, base_pkt);
-                        
+
                         switch (pkt.hand) {
                             0 => {
                                 const gpkt = try packet.S2CEntityAnimationPacket.init(self.alloc);
@@ -340,7 +340,7 @@ pub const NetworkHandler = struct {
                         base_pkt.deinit(self.alloc);
                     },
                     else => {
-                        log.err("Unknown play packet: {}", .{base_pkt});
+                        log.err("Unknown play packet: {s}", .{base_pkt});
                         base_pkt.deinit(self.alloc);
                     },
                 }
@@ -433,28 +433,32 @@ pub const NetworkHandler = struct {
         spkt.gamemode = .{ .mode = .creative, .hardcore = false };
         spkt.dimension_codec = network.BASIC_DIMENSION_CODEC;
         spkt.dimension = network.BASIC_DIMENSION;
-        log.debug("{}", .{spkt});
+        // this oddly causes the compiler to throw:
+        //
+        // error: '@Frame(std.fmt.formatType)' depends on itself
+        //
+        // log.info("{}", .{spkt});
         self.sendPacket(try spkt.encode(self.alloc));
         spkt.deinit(self.alloc);
 
         // send player position look packet
         const spkt2 = try packet.S2CPlayerPositionLookPacket.init(self.alloc);
         spkt2.pos = self.player.?.player.base.pos;
-        log.debug("{}", .{spkt2});
+        //log.debug("{any}", .{spkt2});
         self.sendPacket(try spkt2.encode(self.alloc));
         spkt2.deinit(self.alloc);
 
         // send spawn position packet
         const spkt3 = try packet.S2CSpawnPositionPacket.init(self.alloc);
         spkt3.pos = self.player.?.player.base.pos;
-        log.debug("{}", .{spkt3});
+        //log.debug("{any}", .{spkt3});
         self.sendPacket(try spkt3.encode(self.alloc));
         spkt3.deinit(self.alloc);
 
         // send hand slot packet
         const spkt4 = try packet.S2CHeldItemChangePacket.init(self.alloc);
         spkt4.slot = self.player.?.player.selected_hotbar_slot;
-        log.debug("{}", .{spkt4});
+        //log.debug("{any}", .{spkt4});
         self.sendPacket(try spkt4.encode(self.alloc));
         spkt4.deinit(self.alloc);
     }

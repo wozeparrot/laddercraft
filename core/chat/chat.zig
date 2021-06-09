@@ -3,7 +3,7 @@ const json = std.json;
 
 pub const Text = struct {
     text: []const u8,
-    
+
     bold: bool = false,
     italic: bool = false,
     underlined: bool = false,
@@ -32,6 +32,6 @@ pub const Color = enum {
     white,
 
     pub fn jsonStringify(self: Color, options: json.StringifyOptions, out_stream: anytype) !void {
-        try std.fmt.format(out_stream, "\"{}\"", .{@tagName(self)});
+        try std.fmt.format(out_stream, "\"{s}\"", .{@tagName(self)});
     }
 };
