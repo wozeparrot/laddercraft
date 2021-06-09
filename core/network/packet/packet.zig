@@ -90,6 +90,6 @@ pub const Packet = struct {
     }
 
     pub fn format(self: *const Packet, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
-        try std.fmt.format(writer, "Packet{{{}, 0x{x}}}", .{self.length, self.id});
+        try std.fmt.format(writer, "Packet{{{}, 0x{x}}}", .{ self.length, self.id });
     }
 };
