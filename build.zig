@@ -1,7 +1,11 @@
 const std = @import("std");
 const Pkg = @import("std").build.Pkg;
 const Builder = @import("std").build.Builder;
-const deps = @import("deps.zig");
+
+const zlm_pkg = Pkg{
+    .name = "zlm",
+    .path = "deps/zlm/zlm.zig",        
+};
 
 pub fn build(b: *Builder) void {
     const target = b.standardTargetOptions(.{});
@@ -11,15 +15,15 @@ pub fn build(b: *Builder) void {
     exe.setTarget(target);
     exe.setBuildMode(mode);
 
+    exe.addPackage(zlm_pkg);
+
     exe.addPackage(Pkg{
         .name = "ladder_core",
         .path = "core/lib.zig",
         .dependencies = &[_]Pkg{
-            deps.packages[0]
+            zlm_pkg
         },
     });
-
-    deps.addAllTo(exe);
 
     exe.install();
 
