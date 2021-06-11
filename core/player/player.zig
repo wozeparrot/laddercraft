@@ -67,9 +67,9 @@ pub const Player = struct {
 
     /// Checks if a point will collide with the player
     pub fn checkCollision(self: *Player, p: zlm.Vec3) bool {
-        if (p.x > self.base.pos.x + 0.5 and p.x < self.base.pos.x - 0.5 and
-            p.z > self.base.pos.z + 0.5 and p.z < self.base.pos.z - 0.5 and
-            p.y > self.base.pos.y + 2.0 and p.y < self.base.pos.y - 0.0) return false;
-        return true;
+        if (p.x + 0.5 < self.base.pos.x + 0.5 and p.x + 0.5 > self.base.pos.x - 0.5 and
+            p.z + 0.5 < self.base.pos.z + 0.5 and p.z + 0.5 > self.base.pos.z - 0.5 and
+            p.y + 0.0 < self.base.pos.y + 2.0 and p.y + 0.0 > self.base.pos.y - 0.0) return true;
+        return false;
     }
 };
