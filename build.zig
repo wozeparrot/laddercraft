@@ -14,7 +14,7 @@ pub fn build(b: *Builder) void {
     const exe = b.addExecutable("ladder", "src/main.zig");
     exe.setTarget(target);
     exe.setBuildMode(mode);
-    // exe.use_stage1 = true;
+    exe.use_stage1 = true;
 
     exe.addPackage(zlm_pkg);
 
