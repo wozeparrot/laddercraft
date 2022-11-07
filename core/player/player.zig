@@ -72,4 +72,11 @@ pub const Player = struct {
             p.y + 0.0 < self.base.pos.y + 2.0 and p.y + 0.0 > self.base.pos.y - 0.0) return true;
         return false;
     }
+
+    /// Checks if a block will collide with the player
+    pub fn checkBlockCollision(self: *Player, p: zlm.Vec3) bool {
+        if (p.x == @floor(self.base.pos.x) and p.z == @floor(self.base.pos.z) and
+            p.y <= @floor(self.base.pos.y + 2.0) and p.y >= @floor(self.base.pos.y)) return true;
+        return false;
+    }
 };
