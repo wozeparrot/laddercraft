@@ -1,3 +1,0 @@
-[submodule "deps/zlm"]
-	path = deps/zlm
-	url = git://github.com/ziglibs/zlm.git
