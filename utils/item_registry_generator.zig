@@ -10,7 +10,7 @@ const State = enum {
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    const alloc = &gpa.allocator;
+    const alloc = gpa.allocator();
 
     var output = std.ArrayList(u8).init(alloc);
     defer output.deinit();
@@ -34,14 +34,14 @@ pub fn main() !void {
     );
 
     // embed json data file
-    const json = @embedFile("../data/items.json");
+    const json = @embedFile("data/items.json");
     var stream = std.json.TokenStream.init(json);
     std.debug.assert((try stream.next()).? == .ObjectBegin);
 
     var state: State = .none;
     var current_item_id: u16 = 0;
 
-    const blocks = std.meta.declarations(@import("blocks.zig"));
+    const blocks = comptime std.meta.declarations(@import("blocks.zig"));
     const block_names = comptime blk: {
         var names = [_][]const u8{""} ** blocks.len;
         for (blocks) |decl, i| {
@@ -70,7 +70,7 @@ pub fn main() !void {
                     .item => {
                         if (std.mem.eql(u8, t.slice(json, stream.i - 1), "protocol_id")) {
                             try writer.writeAll(".protocol_id = ");
-                        } else std.debug.panic("broken json: {} at {}", .{ t.slice(json, stream.i - 1), stream.i });
+                        } else std.debug.panic("broken json: {s} at {}", .{ t.slice(json, stream.i - 1), stream.i });
                     },
                 }
             },

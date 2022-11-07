@@ -1,1 +1,1 @@
-const zlm = @import("zlm").specializeOn(f64);
+const zlm = @import("zlm").SpecializeOn(f64);

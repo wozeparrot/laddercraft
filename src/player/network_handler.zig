@@ -6,7 +6,7 @@ const atomic = std.atomic;
 const rand = std.rand;
 const net = std.net;
 
-const zlm = @import("zlm").specializeOn(f64);
+const zlm = @import("zlm").SpecializeOn(f64);
 
 const ladder_core = @import("ladder_core");
 const network = ladder_core.network;
@@ -22,7 +22,7 @@ const Player = @import("player.zig").Player;
 const Server = @import("../server.zig").Server;
 
 pub const NetworkHandler = struct {
-    alloc: *Allocator,
+    alloc: Allocator,
     read_frame: @Frame(NetworkHandler.read),
     write_frame: @Frame(NetworkHandler.write),
 
@@ -39,7 +39,7 @@ pub const NetworkHandler = struct {
     write_packets: *std.event.Channel(*packet.Packet),
     write_packets_buf: [256]*packet.Packet = undefined,
 
-    pub fn init(alloc: *Allocator, conn: net.StreamServer.Connection) !*NetworkHandler {
+    pub fn init(alloc: Allocator, conn: net.StreamServer.Connection) !*NetworkHandler {
         const network_handler = try alloc.create(NetworkHandler);
         network_handler.* = .{
             .alloc = alloc,
@@ -95,6 +95,7 @@ pub const NetworkHandler = struct {
     }
 
     pub fn _read(self: *NetworkHandler, server: *Server) !void {
+        _ = server;
         while (self.is_alive.load(.Monotonic)) {
             const base_pkt = packet.Packet.decode(self.alloc, self.reader) catch |err| switch (err) {
                 error.NotOpenForReading,
@@ -138,24 +139,22 @@ pub const NetworkHandler = struct {
 
     pub fn _handle(self: *NetworkHandler, server: *Server) !void {
         // check valid handshake and login
-        const handshake_return = self.handleHandshake(server) catch |err| {
+        const handshake_return = self.handleHandshake(server) catch {
             self.is_alive.store(false, .SeqCst);
             return;
         };
         if (handshake_return.completed) {
-            // remove from server holding
-            const held = server.holding_lock.acquire();
-            _ = server.holding.swapRemove(self);
-            held.release();
-
             // create player
             self.player = try Player.init(self.alloc, self);
             // set player uuid and username
             self.player.?.player.base.uuid = handshake_return.uuid;
             self.player.?.player.username = handshake_return.username;
             self.player.?.player.base.entity_id = server.nextEntityId();
-            // add player to group and start player
-            try server.findBestGroup(self.player.?);
+
+            // fine the best group to put the player in
+            const group = try server.findBestGroup(self.player.?);
+            // transfer the player to the group
+            try server.transferToGroup(self.player.?, group);
 
             // send join game packets
             try self.transistionToPlay(server);
@@ -353,6 +352,7 @@ pub const NetworkHandler = struct {
     // handle handshake and login before creating a player (must write packets manually)
     const HandshakeReturnData = struct { completed: bool, uuid: UUID, username: []const u8 };
     fn handleHandshake(self: *NetworkHandler, server: *Server) !HandshakeReturnData {
+        _ = server;
         // current connection state
         var conn_state: network.client.ConnectionState = .handshake;
 
@@ -398,7 +398,7 @@ pub const NetworkHandler = struct {
                         // send login success packet
                         const spkt = try packet.S2CLoginSuccessPacket.init(self.alloc);
                         defer spkt.deinit(self.alloc);
-                        spkt.uuid = UUID.newv4(&std.rand.DefaultPrng.init(@bitCast(u64, std.time.timestamp())).random);
+                        spkt.uuid = UUID.newv4(&std.rand.DefaultPrng.init(@bitCast(u64, std.time.timestamp())).random());
                         spkt.username = pkt.username;
                         const bspkt = try spkt.encode(self.alloc);
                         defer bspkt.deinit(self.alloc);
@@ -429,6 +429,7 @@ pub const NetworkHandler = struct {
     }
 
     fn transistionToPlay(self: *NetworkHandler, server: *Server) !void {
+        _ = server;
         // send join game packet
         const spkt = try packet.S2CJoinGamePacket.init(self.alloc);
         spkt.entity_id = self.player.?.player.base.entity_id;

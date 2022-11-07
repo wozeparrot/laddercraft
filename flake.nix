@@ -1,5 +1,5 @@
 {
-  description = "zbed dev flake";
+  description = "laddercraft dev flake";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
   inputs.flake-utils.url = "github:numtide/flake-utils";

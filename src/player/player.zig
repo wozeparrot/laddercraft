@@ -12,7 +12,7 @@ const NetworkHandler = @import("network_handler.zig").NetworkHandler;
 const Group = @import("../group.zig").Group;
 
 pub const Player = struct {
-    alloc: *Allocator,
+    alloc: Allocator,
 
     group: ?*Group,
 
@@ -25,7 +25,7 @@ pub const Player = struct {
     loaded_chunks: std.AutoArrayHashMap(u64, void),
     loaded_chunks_lock: std.event.Lock,
 
-    pub fn init(alloc: *Allocator, network_handler: *NetworkHandler) !*Player {
+    pub fn init(alloc: Allocator, network_handler: *NetworkHandler) !*Player {
         const player = try alloc.create(Player);
         player.* = .{
             .alloc = alloc,

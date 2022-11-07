@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const zlm = @import("zlm").specializeOn(f64);
+const zlm = @import("zlm").SpecializeOn(f64);
 
 pub usingnamespace @import("block_state.zig");
 pub usingnamespace @import("block_entity.zig");
@@ -51,6 +51,6 @@ test "BlockPos" {
     const packet_pos = pos.toPacketPosition();
     const pos2 = BlockPos.fromPacketPosition(packet_pos);
 
-    std.testing.expectEqual(packet_pos, 0b1111111111111111111111011011111111111111111111100111000000010001);
-    std.testing.expectEqual(pos2, pos);
+    try std.testing.expectEqual(packet_pos, 0b1111111111111111111111011011111111111111111111100111000000010001);
+    try std.testing.expectEqual(pos2, pos);
 }

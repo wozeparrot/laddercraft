@@ -17,9 +17,9 @@ pub const UUID = struct {
 
         var uuid: u128 = 0;
         for (out) |byte, i| {
-            uuid |= @as(u128, @as(u8, @bitReverse(u4, @truncate(u4, byte))) | (@as(u8, @bitReverse(u4, @truncate(u4, byte >> 4))) << 4)) << (15 - @intCast(u7, i)) * 8;
+            uuid |= @as(u128, @as(u8, @bitReverse(@truncate(u4, byte))) | (@as(u8, @bitReverse(@truncate(u4, byte >> 4))) << 4)) << (15 - @intCast(u7, i)) * 8;
         }
-        uuid = @bitReverse(u128, uuid);
+        uuid = @bitReverse(uuid);
 
         const flip: u128 = 0b1111 << 48;
         return UUID{ .version = .v3, .uuid = ((uuid & ~flip) | (0x3 << 48)) };
@@ -33,6 +33,8 @@ pub const UUID = struct {
 
     /// Creates a string from the ID.
     pub fn format(self: UUID, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        _ = options;
+        _ = fmt;
         var buf = [_]u8{0} ** 36;
 
         var chars = "0123456789abcdef";
@@ -67,5 +69,5 @@ pub const UUID = struct {
 
 test "UUID" {
     const v3 = UUID.newv3("OfflinePlayer:wozeparrot");
-    std.testing.expectEqual(v3.uuid, 216409540031814485994237107467455717738);
+    try std.testing.expectEqual(v3.uuid, 216409540031814485994237107467455717738);
 }

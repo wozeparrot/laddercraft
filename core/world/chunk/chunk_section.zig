@@ -10,14 +10,14 @@ pub const ChunkSection = struct {
     data: CompactedDataArray,
     block_count: u16,
 
-    pub fn init(alloc: *Allocator) !ChunkSection {
+    pub fn init(alloc: Allocator) !ChunkSection {
         return ChunkSection{
             .data = try CompactedDataArray.init(alloc, 15, 4096),
             .block_count = 0,
         };
     }
 
-    pub fn deinit(self: *ChunkSection, alloc: *Allocator) void {
+    pub fn deinit(self: *ChunkSection, alloc: Allocator) void {
         self.data.deinit(alloc);
     }
 

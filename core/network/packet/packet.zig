@@ -25,7 +25,7 @@ pub const Packet = struct {
     read_write: bool,
     raw_data: []u8,
 
-    pub fn init(alloc: *Allocator) !*Packet {
+    pub fn init(alloc: Allocator) !*Packet {
         const packet = try alloc.create(Packet);
         packet.* = .{
             .length = 0,
@@ -38,13 +38,14 @@ pub const Packet = struct {
         return packet;
     }
 
-    pub fn encode(self: *Packet, alloc: *Allocator, wr: anytype) !void {
+    pub fn encode(self: *Packet, alloc: Allocator, wr: anytype) !void {
+        _ = alloc;
         try utils.writeVarInt(wr, self.length);
         try wr.writeByte(self.id);
         try wr.writeAll(self.data);
     }
 
-    pub fn decode(alloc: *Allocator, rd: anytype) !*Packet {
+    pub fn decode(alloc: Allocator, rd: anytype) !*Packet {
         const length = try utils.readVarInt(rd);
         const data = try utils.readByteArray(alloc, rd, length);
         const id = data[0];
@@ -61,7 +62,7 @@ pub const Packet = struct {
         return packet;
     }
 
-    pub fn deinit(self: *Packet, alloc: *Allocator) void {
+    pub fn deinit(self: *Packet, alloc: Allocator) void {
         if (!self.read_write) {
             if (self.id != 0xFF) alloc.free(self.raw_data);
         } else {
@@ -70,7 +71,7 @@ pub const Packet = struct {
         alloc.destroy(self);
     }
 
-    pub fn copy(self: *Packet, alloc: *Allocator) !*Packet {
+    pub fn copy(self: *Packet, alloc: Allocator) !*Packet {
         const data = if (self.read_write) try alloc.dupe(u8, self.data) else try alloc.dupe(u8, self.raw_data);
 
         const packet = try alloc.create(Packet);
@@ -90,6 +91,8 @@ pub const Packet = struct {
     }
 
     pub fn format(self: *const Packet, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        _ = options;
+        _ = fmt;
         try std.fmt.format(writer, "Packet{{{}, 0x{x}}}", .{ self.length, self.id });
     }
 };

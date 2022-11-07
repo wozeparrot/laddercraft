@@ -18,7 +18,7 @@ const State = enum {
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    const alloc = &gpa.allocator;
+    const alloc = gpa.allocator();
 
     var output = std.ArrayList(u8).init(alloc);
     defer output.deinit();
@@ -72,7 +72,7 @@ pub fn main() !void {
     );
 
     // embed json data file
-    const json = @embedFile("../data/blocks.json");
+    const json = @embedFile("data/blocks.json");
     var stream = std.json.TokenStream.init(json);
     std.debug.assert((try stream.next()).? == .ObjectBegin);
 
@@ -100,7 +100,7 @@ pub fn main() !void {
                         } else if (std.mem.eql(u8, t.slice(json, stream.i - 1), "properties")) {
                             try writer.writeAll(".properties = &[_]Block.Property{\n");
                             state = .properties;
-                        } else std.debug.panic("broken json: {} at {}", .{ t.slice(json, stream.i - 1), stream.i });
+                        } else std.debug.panic("broken json: {s} at {}", .{ t.slice(json, stream.i - 1), stream.i });
                     },
                     .properties => {
                         try writer.writeAll(".{\n");

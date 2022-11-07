@@ -14,7 +14,7 @@ const Player = @import("player/player.zig").Player;
 const l_config = @import("config.zig").config;
 
 pub const Group = struct {
-    alloc: *Allocator,
+    alloc: Allocator,
 
     server: *Server,
 
@@ -27,7 +27,7 @@ pub const Group = struct {
 
     is_alive: std.atomic.Atomic(bool),
 
-    pub fn init(alloc: *Allocator, server: *Server) !*Group {
+    pub fn init(alloc: Allocator, server: *Server) !*Group {
         const group = try alloc.create(Group);
         group.* = .{
             .alloc = alloc,

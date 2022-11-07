@@ -8,7 +8,7 @@ pub const ChunkSection = @import("chunk_section.zig").ChunkSection;
 pub const CompactedDataArray = @import("compacted_data_array.zig").CompactedDataArray;
 
 pub const Chunk = struct {
-    alloc: *Allocator,
+    alloc: Allocator,
 
     sections: std.AutoArrayHashMap(u8, ChunkSection),
     block_entities: std.AutoArrayHashMap(block.BlockPos, block.BlockEntity),
@@ -16,7 +16,7 @@ pub const Chunk = struct {
     x: i32,
     z: i32,
 
-    pub fn initEmpty(alloc: *Allocator, x: i32, z: i32) !*Chunk {
+    pub fn initEmpty(alloc: Allocator, x: i32, z: i32) !*Chunk {
         const chunk = try alloc.create(Chunk);
         chunk.* = Chunk{
             .alloc = alloc,
@@ -30,7 +30,7 @@ pub const Chunk = struct {
         return chunk;
     }
 
-    pub fn initFlat(alloc: *Allocator, x: i32, z: i32) !*Chunk {
+    pub fn initFlat(alloc: Allocator, x: i32, z: i32) !*Chunk {
         var chunk = try initEmpty(alloc, x, z);
 
         var cy: u32 = 0;
@@ -91,7 +91,7 @@ pub const Chunk = struct {
         return highest;
     }
 
-    pub fn chunkID(self: *Chunk) callconv(.Inline) u64 {
+    pub inline fn chunkID(self: *Chunk) u64 {
         return (@bitCast(u64, @as(i64, self.x)) << 32) | @bitCast(u32, self.z);
     }
 };

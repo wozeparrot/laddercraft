@@ -4,7 +4,7 @@ const Allocator = mem.Allocator;
 const io = std.io;
 const log = std.log;
 
-const zlm = @import("zlm").specializeOn(f64);
+const zlm = @import("zlm").SpecializeOn(f64);
 
 const utils = @import("../utils.zig");
 const Packet = @import("packet.zig").Packet;
@@ -22,7 +22,7 @@ pub const C2SChatMessagePacket = struct {
 
     message: []const u8,
 
-    pub fn decode(alloc: *Allocator, base: *Packet) !*C2SChatMessagePacket {
+    pub fn decode(alloc: Allocator, base: *Packet) !*C2SChatMessagePacket {
         const brd = base.toStream().reader();
 
         const length = try utils.readVarInt(brd);
@@ -37,7 +37,7 @@ pub const C2SChatMessagePacket = struct {
         return packet;
     }
 
-    pub fn deinit(self: *C2SChatMessagePacket, alloc: *Allocator) void {
+    pub fn deinit(self: *C2SChatMessagePacket, alloc: Allocator) void {
         alloc.free(self.message);
         alloc.destroy(self);
     }
@@ -52,7 +52,7 @@ pub const S2CSpawnPlayerPacket = struct {
     pos: zlm.Vec3 = zlm.Vec3.zero,
     look: zlm.Vec2 = zlm.Vec2.zero,
 
-    pub fn init(alloc: *Allocator) !*S2CSpawnPlayerPacket {
+    pub fn init(alloc: Allocator) !*S2CSpawnPlayerPacket {
         const base = try Packet.init(alloc);
 
         const packet = try alloc.create(S2CSpawnPlayerPacket);
@@ -62,7 +62,7 @@ pub const S2CSpawnPlayerPacket = struct {
         return packet;
     }
 
-    pub fn encode(self: *S2CSpawnPlayerPacket, alloc: *Allocator) !*Packet {
+    pub fn encode(self: *S2CSpawnPlayerPacket, alloc: Allocator) !*Packet {
         self.base.id = 0x04;
         self.base.read_write = true;
 
@@ -85,7 +85,7 @@ pub const S2CSpawnPlayerPacket = struct {
         return self.base;
     }
 
-    pub fn deinit(self: *S2CSpawnPlayerPacket, alloc: *Allocator) void {
+    pub fn deinit(self: *S2CSpawnPlayerPacket, alloc: Allocator) void {
         alloc.destroy(self);
     }
 };
@@ -97,7 +97,7 @@ pub const S2CEntityAnimationPacket = struct {
     entity_id: i32 = 0,
     animation: u8 = 0,
 
-    pub fn init(alloc: *Allocator) !*S2CEntityAnimationPacket {
+    pub fn init(alloc: Allocator) !*S2CEntityAnimationPacket {
         const base = try Packet.init(alloc);
 
         const packet = try alloc.create(S2CEntityAnimationPacket);
@@ -107,7 +107,7 @@ pub const S2CEntityAnimationPacket = struct {
         return packet;
     }
 
-    pub fn encode(self: *S2CEntityAnimationPacket, alloc: *Allocator) !*Packet {
+    pub fn encode(self: *S2CEntityAnimationPacket, alloc: Allocator) !*Packet {
         self.base.id = 0x05;
         self.base.read_write = true;
 
@@ -124,7 +124,7 @@ pub const S2CEntityAnimationPacket = struct {
         return self.base;
     }
 
-    pub fn deinit(self: *S2CEntityAnimationPacket, alloc: *Allocator) void {
+    pub fn deinit(self: *S2CEntityAnimationPacket, alloc: Allocator) void {
         alloc.destroy(self);
     }
 };
@@ -136,7 +136,7 @@ pub const S2CBlockChangePacket = struct {
     position: world.block.BlockPos = undefined,
     block_state: world.block.BlockState = 0,
 
-    pub fn init(alloc: *Allocator) !*S2CBlockChangePacket {
+    pub fn init(alloc: Allocator) !*S2CBlockChangePacket {
         const base = try Packet.init(alloc);
 
         const packet = try alloc.create(S2CBlockChangePacket);
@@ -146,7 +146,7 @@ pub const S2CBlockChangePacket = struct {
         return packet;
     }
 
-    pub fn encode(self: *S2CBlockChangePacket, alloc: *Allocator) !*Packet {
+    pub fn encode(self: *S2CBlockChangePacket, alloc: Allocator) !*Packet {
         self.base.id = 0x0b;
         self.base.read_write = true;
 
@@ -163,7 +163,7 @@ pub const S2CBlockChangePacket = struct {
         return self.base;
     }
 
-    pub fn deinit(self: *S2CBlockChangePacket, alloc: *Allocator) void {
+    pub fn deinit(self: *S2CBlockChangePacket, alloc: Allocator) void {
         alloc.destroy(self);
     }
 };
@@ -176,7 +176,7 @@ pub const S2CChatMessagePacket = struct {
     position: u8 = 0,
     sender: UUID = UUID.zero(),
 
-    pub fn init(alloc: *Allocator) !*S2CChatMessagePacket {
+    pub fn init(alloc: Allocator) !*S2CChatMessagePacket {
         const base = try Packet.init(alloc);
 
         const packet = try alloc.create(S2CChatMessagePacket);
@@ -186,7 +186,7 @@ pub const S2CChatMessagePacket = struct {
         return packet;
     }
 
-    pub fn encode(self: *S2CChatMessagePacket, alloc: *Allocator) !*Packet {
+    pub fn encode(self: *S2CChatMessagePacket, alloc: Allocator) !*Packet {
         self.base.id = 0x0e;
         self.base.read_write = true;
 
@@ -204,7 +204,7 @@ pub const S2CChatMessagePacket = struct {
         return self.base;
     }
 
-    pub fn deinit(self: *S2CChatMessagePacket, alloc: *Allocator) void {
+    pub fn deinit(self: *S2CChatMessagePacket, alloc: Allocator) void {
         alloc.destroy(self);
     }
 };
@@ -218,7 +218,7 @@ pub const C2SPlayerPositionPacket = struct {
     z: f64,
     on_ground: bool,
 
-    pub fn decode(alloc: *Allocator, base: *Packet) !*C2SPlayerPositionPacket {
+    pub fn decode(alloc: Allocator, base: *Packet) !*C2SPlayerPositionPacket {
         const brd = base.toStream().reader();
 
         const x = @bitCast(f64, try brd.readIntBig(i64));
@@ -238,7 +238,7 @@ pub const C2SPlayerPositionPacket = struct {
         return packet;
     }
 
-    pub fn deinit(self: *C2SPlayerPositionPacket, alloc: *Allocator) void {
+    pub fn deinit(self: *C2SPlayerPositionPacket, alloc: Allocator) void {
         alloc.destroy(self);
     }
 };
@@ -254,7 +254,7 @@ pub const C2SPlayerPositionRotationPacket = struct {
     pitch: f32,
     on_ground: bool,
 
-    pub fn decode(alloc: *Allocator, base: *Packet) !*C2SPlayerPositionRotationPacket {
+    pub fn decode(alloc: Allocator, base: *Packet) !*C2SPlayerPositionRotationPacket {
         const brd = base.toStream().reader();
 
         const x = @bitCast(f64, try brd.readIntBig(i64));
@@ -278,7 +278,7 @@ pub const C2SPlayerPositionRotationPacket = struct {
         return packet;
     }
 
-    pub fn deinit(self: *C2SPlayerPositionRotationPacket, alloc: *Allocator) void {
+    pub fn deinit(self: *C2SPlayerPositionRotationPacket, alloc: Allocator) void {
         alloc.destroy(self);
     }
 };
@@ -291,7 +291,7 @@ pub const C2SPlayerRotationPacket = struct {
     pitch: f32,
     on_ground: bool,
 
-    pub fn decode(alloc: *Allocator, base: *Packet) !*C2SPlayerRotationPacket {
+    pub fn decode(alloc: Allocator, base: *Packet) !*C2SPlayerRotationPacket {
         const brd = base.toStream().reader();
 
         const yaw = @bitCast(f32, try brd.readIntBig(i32));
@@ -309,7 +309,7 @@ pub const C2SPlayerRotationPacket = struct {
         return packet;
     }
 
-    pub fn deinit(self: *C2SPlayerRotationPacket, alloc: *Allocator) void {
+    pub fn deinit(self: *C2SPlayerRotationPacket, alloc: Allocator) void {
         alloc.destroy(self);
     }
 };
@@ -323,7 +323,7 @@ pub const C2SPlayerDiggingPacket = struct {
     position: world.block.BlockPos,
     face: i32,
 
-    pub fn decode(alloc: *Allocator, base: *Packet) !*C2SPlayerDiggingPacket {
+    pub fn decode(alloc: Allocator, base: *Packet) !*C2SPlayerDiggingPacket {
         const brd = base.toStream().reader();
 
         const status = try utils.readVarInt(brd);
@@ -343,7 +343,7 @@ pub const C2SPlayerDiggingPacket = struct {
         return packet;
     }
 
-    pub fn deinit(self: *C2SPlayerDiggingPacket, alloc: *Allocator) void {
+    pub fn deinit(self: *C2SPlayerDiggingPacket, alloc: Allocator) void {
         alloc.destroy(self);
     }
 };
@@ -355,7 +355,7 @@ pub const S2CUnloadChunkPacket = struct {
     chunk_x: i32 = 0,
     chunk_z: i32 = 0,
 
-    pub fn init(alloc: *Allocator) !*S2CUnloadChunkPacket {
+    pub fn init(alloc: Allocator) !*S2CUnloadChunkPacket {
         const base = try Packet.init(alloc);
 
         const packet = try alloc.create(S2CUnloadChunkPacket);
@@ -365,7 +365,7 @@ pub const S2CUnloadChunkPacket = struct {
         return packet;
     }
 
-    pub fn encode(self: *S2CUnloadChunkPacket, alloc: *Allocator) !*Packet {
+    pub fn encode(self: *S2CUnloadChunkPacket, alloc: Allocator) !*Packet {
         self.base.id = 0x1c;
         self.base.read_write = true;
         self.base.length = @sizeOf(S2CUnloadChunkPacket) - @sizeOf(usize) + 1;
@@ -382,7 +382,7 @@ pub const S2CUnloadChunkPacket = struct {
         return self.base;
     }
 
-    pub fn deinit(self: *S2CUnloadChunkPacket, alloc: *Allocator) void {
+    pub fn deinit(self: *S2CUnloadChunkPacket, alloc: Allocator) void {
         alloc.destroy(self);
     }
 };
@@ -393,7 +393,7 @@ pub const S2CKeepAlivePacket = struct {
 
     id: u64 = 0,
 
-    pub fn init(alloc: *Allocator) !*S2CKeepAlivePacket {
+    pub fn init(alloc: Allocator) !*S2CKeepAlivePacket {
         const base = try Packet.init(alloc);
 
         const packet = try alloc.create(S2CKeepAlivePacket);
@@ -403,7 +403,7 @@ pub const S2CKeepAlivePacket = struct {
         return packet;
     }
 
-    pub fn encode(self: *S2CKeepAlivePacket, alloc: *Allocator) !*Packet {
+    pub fn encode(self: *S2CKeepAlivePacket, alloc: Allocator) !*Packet {
         self.base.id = 0x1f;
         self.base.read_write = true;
         self.base.length = @sizeOf(S2CKeepAlivePacket) - @sizeOf(usize) + 1;
@@ -419,7 +419,7 @@ pub const S2CKeepAlivePacket = struct {
         return self.base;
     }
 
-    pub fn deinit(self: *S2CKeepAlivePacket, alloc: *Allocator) void {
+    pub fn deinit(self: *S2CKeepAlivePacket, alloc: Allocator) void {
         alloc.destroy(self);
     }
 };
@@ -431,7 +431,7 @@ pub const S2CChunkDataPacket = struct {
     chunk: *world.chunk.Chunk = undefined,
     full_chunk: bool = true,
 
-    pub fn init(alloc: *Allocator) !*S2CChunkDataPacket {
+    pub fn init(alloc: Allocator) !*S2CChunkDataPacket {
         const base = try Packet.init(alloc);
 
         const packet = try alloc.create(S2CChunkDataPacket);
@@ -441,7 +441,7 @@ pub const S2CChunkDataPacket = struct {
         return packet;
     }
 
-    pub fn encode(self: *S2CChunkDataPacket, alloc: *Allocator) !*Packet {
+    pub fn encode(self: *S2CChunkDataPacket, alloc: Allocator) !*Packet {
         self.base.id = 0x20;
         self.base.read_write = true;
 
@@ -505,7 +505,7 @@ pub const S2CChunkDataPacket = struct {
         return self.base;
     }
 
-    pub fn deinit(self: *S2CChunkDataPacket, alloc: *Allocator) void {
+    pub fn deinit(self: *S2CChunkDataPacket, alloc: Allocator) void {
         alloc.destroy(self);
     }
 };
@@ -527,7 +527,7 @@ pub const S2CJoinGamePacket = struct {
     is_debug: bool = false,
     is_flat: bool = false,
 
-    pub fn init(alloc: *Allocator) !*S2CJoinGamePacket {
+    pub fn init(alloc: Allocator) !*S2CJoinGamePacket {
         const base = try Packet.init(alloc);
 
         const packet = try alloc.create(S2CJoinGamePacket);
@@ -537,7 +537,7 @@ pub const S2CJoinGamePacket = struct {
         return packet;
     }
 
-    pub fn encode(self: *S2CJoinGamePacket, alloc: *Allocator) !*Packet {
+    pub fn encode(self: *S2CJoinGamePacket, alloc: Allocator) !*Packet {
         self.base.id = 0x24;
         self.base.read_write = true;
 
@@ -577,7 +577,7 @@ pub const S2CJoinGamePacket = struct {
         return self.base;
     }
 
-    pub fn deinit(self: *S2CJoinGamePacket, alloc: *Allocator) void {
+    pub fn deinit(self: *S2CJoinGamePacket, alloc: Allocator) void {
         alloc.destroy(self);
     }
 };
@@ -588,7 +588,7 @@ pub const C2SHeldItemChangePacket = struct {
 
     slot: u8,
 
-    pub fn decode(alloc: *Allocator, base: *Packet) !*C2SHeldItemChangePacket {
+    pub fn decode(alloc: Allocator, base: *Packet) !*C2SHeldItemChangePacket {
         const brd = base.toStream().reader();
 
         const slot = @intCast(u8, try brd.readIntBig(i16));
@@ -602,7 +602,7 @@ pub const C2SHeldItemChangePacket = struct {
         return packet;
     }
 
-    pub fn deinit(self: *C2SHeldItemChangePacket, alloc: *Allocator) void {
+    pub fn deinit(self: *C2SHeldItemChangePacket, alloc: Allocator) void {
         alloc.destroy(self);
     }
 };
@@ -615,7 +615,7 @@ pub const S2CEntityPositionPacket = struct {
     delta: zlm.Vec3 = zlm.Vec3.zero,
     on_ground: bool = true,
 
-    pub fn init(alloc: *Allocator) !*S2CEntityPositionPacket {
+    pub fn init(alloc: Allocator) !*S2CEntityPositionPacket {
         const base = try Packet.init(alloc);
 
         const packet = try alloc.create(S2CEntityPositionPacket);
@@ -625,7 +625,7 @@ pub const S2CEntityPositionPacket = struct {
         return packet;
     }
 
-    pub fn encode(self: *S2CEntityPositionPacket, alloc: *Allocator) !*Packet {
+    pub fn encode(self: *S2CEntityPositionPacket, alloc: Allocator) !*Packet {
         self.base.id = 0x27;
         self.base.read_write = true;
 
@@ -645,7 +645,7 @@ pub const S2CEntityPositionPacket = struct {
         return self.base;
     }
 
-    pub fn deinit(self: *S2CEntityPositionPacket, alloc: *Allocator) void {
+    pub fn deinit(self: *S2CEntityPositionPacket, alloc: Allocator) void {
         alloc.destroy(self);
     }
 };
@@ -659,7 +659,7 @@ pub const S2CEntityPositionRotationPacket = struct {
     look: zlm.Vec2 = zlm.Vec2.zero,
     on_ground: bool = true,
 
-    pub fn init(alloc: *Allocator) !*S2CEntityPositionRotationPacket {
+    pub fn init(alloc: Allocator) !*S2CEntityPositionRotationPacket {
         const base = try Packet.init(alloc);
 
         const packet = try alloc.create(S2CEntityPositionRotationPacket);
@@ -669,7 +669,7 @@ pub const S2CEntityPositionRotationPacket = struct {
         return packet;
     }
 
-    pub fn encode(self: *S2CEntityPositionRotationPacket, alloc: *Allocator) !*Packet {
+    pub fn encode(self: *S2CEntityPositionRotationPacket, alloc: Allocator) !*Packet {
         self.base.id = 0x28;
         self.base.read_write = true;
 
@@ -691,7 +691,7 @@ pub const S2CEntityPositionRotationPacket = struct {
         return self.base;
     }
 
-    pub fn deinit(self: *S2CEntityPositionRotationPacket, alloc: *Allocator) void {
+    pub fn deinit(self: *S2CEntityPositionRotationPacket, alloc: Allocator) void {
         alloc.destroy(self);
     }
 };
@@ -703,7 +703,7 @@ pub const C2SCreativeInventoryActionPacket = struct {
     slot: i16,
     clicked_item: ?player.inventory.Slot,
 
-    pub fn decode(alloc: *Allocator, base: *Packet) !*C2SCreativeInventoryActionPacket {
+    pub fn decode(alloc: Allocator, base: *Packet) !*C2SCreativeInventoryActionPacket {
         const brd = base.toStream().reader();
 
         const slot = try brd.readIntBig(i16);
@@ -723,7 +723,7 @@ pub const C2SCreativeInventoryActionPacket = struct {
         return packet;
     }
 
-    pub fn deinit(self: *C2SCreativeInventoryActionPacket, alloc: *Allocator) void {
+    pub fn deinit(self: *C2SCreativeInventoryActionPacket, alloc: Allocator) void {
         alloc.destroy(self);
     }
 };
@@ -736,7 +736,7 @@ pub const S2CEntityRotationPacket = struct {
     look: zlm.Vec2 = zlm.Vec2.zero,
     on_ground: bool = true,
 
-    pub fn init(alloc: *Allocator) !*S2CEntityRotationPacket {
+    pub fn init(alloc: Allocator) !*S2CEntityRotationPacket {
         const base = try Packet.init(alloc);
 
         const packet = try alloc.create(S2CEntityRotationPacket);
@@ -746,7 +746,7 @@ pub const S2CEntityRotationPacket = struct {
         return packet;
     }
 
-    pub fn encode(self: *S2CEntityRotationPacket, alloc: *Allocator) !*Packet {
+    pub fn encode(self: *S2CEntityRotationPacket, alloc: Allocator) !*Packet {
         self.base.id = 0x29;
         self.base.read_write = true;
 
@@ -765,7 +765,7 @@ pub const S2CEntityRotationPacket = struct {
         return self.base;
     }
 
-    pub fn deinit(self: *S2CEntityRotationPacket, alloc: *Allocator) void {
+    pub fn deinit(self: *S2CEntityRotationPacket, alloc: Allocator) void {
         alloc.destroy(self);
     }
 };
@@ -776,7 +776,7 @@ pub const C2SAnimationPacket = struct {
 
     hand: i32,
 
-    pub fn decode(alloc: *Allocator, base: *Packet) !*C2SAnimationPacket {
+    pub fn decode(alloc: Allocator, base: *Packet) !*C2SAnimationPacket {
         const brd = base.toStream().reader();
 
         const hand = try utils.readVarInt(brd);
@@ -790,7 +790,7 @@ pub const C2SAnimationPacket = struct {
         return packet;
     }
 
-    pub fn deinit(self: *C2SAnimationPacket, alloc: *Allocator) void {
+    pub fn deinit(self: *C2SAnimationPacket, alloc: Allocator) void {
         alloc.destroy(self);
     }
 };
@@ -810,7 +810,7 @@ pub const C2SPlayerBlockPlacementPacket = struct {
 
     inside_block: bool,
 
-    pub fn decode(alloc: *Allocator, base: *Packet) !*C2SPlayerBlockPlacementPacket {
+    pub fn decode(alloc: Allocator, base: *Packet) !*C2SPlayerBlockPlacementPacket {
         const brd = base.toStream().reader();
 
         const hand = try utils.readVarInt(brd);
@@ -842,7 +842,7 @@ pub const C2SPlayerBlockPlacementPacket = struct {
         return packet;
     }
 
-    pub fn deinit(self: *C2SPlayerBlockPlacementPacket, alloc: *Allocator) void {
+    pub fn deinit(self: *C2SPlayerBlockPlacementPacket, alloc: Allocator) void {
         alloc.destroy(self);
     }
 };
@@ -877,7 +877,7 @@ pub const S2CPlayerInfoPacket = struct {
     action: S2CPlayerInfoAction = undefined,
     players: []S2CPlayerInfoPlayer = undefined,
 
-    pub fn init(alloc: *Allocator) !*S2CPlayerInfoPacket {
+    pub fn init(alloc: Allocator) !*S2CPlayerInfoPacket {
         const base = try Packet.init(alloc);
 
         const packet = try alloc.create(S2CPlayerInfoPacket);
@@ -887,7 +887,7 @@ pub const S2CPlayerInfoPacket = struct {
         return packet;
     }
 
-    pub fn encode(self: *S2CPlayerInfoPacket, alloc: *Allocator) !*Packet {
+    pub fn encode(self: *S2CPlayerInfoPacket, alloc: Allocator) !*Packet {
         self.base.id = 0x32;
         self.base.read_write = true;
 
@@ -929,7 +929,7 @@ pub const S2CPlayerInfoPacket = struct {
         return self.base;
     }
 
-    pub fn deinit(self: *S2CPlayerInfoPacket, alloc: *Allocator) void {
+    pub fn deinit(self: *S2CPlayerInfoPacket, alloc: Allocator) void {
         alloc.destroy(self);
     }
 };
@@ -943,7 +943,7 @@ pub const S2CPlayerPositionLookPacket = struct {
     flags: u8 = 0,
     teleport_id: i32 = 0,
 
-    pub fn init(alloc: *Allocator) !*S2CPlayerPositionLookPacket {
+    pub fn init(alloc: Allocator) !*S2CPlayerPositionLookPacket {
         const base = try Packet.init(alloc);
 
         const packet = try alloc.create(S2CPlayerPositionLookPacket);
@@ -953,7 +953,7 @@ pub const S2CPlayerPositionLookPacket = struct {
         return packet;
     }
 
-    pub fn encode(self: *S2CPlayerPositionLookPacket, alloc: *Allocator) !*Packet {
+    pub fn encode(self: *S2CPlayerPositionLookPacket, alloc: Allocator) !*Packet {
         self.base.id = 0x34;
         self.base.read_write = true;
 
@@ -978,7 +978,7 @@ pub const S2CPlayerPositionLookPacket = struct {
         return self.base;
     }
 
-    pub fn deinit(self: *S2CPlayerPositionLookPacket, alloc: *Allocator) void {
+    pub fn deinit(self: *S2CPlayerPositionLookPacket, alloc: Allocator) void {
         alloc.destroy(self);
     }
 };
@@ -990,7 +990,7 @@ pub const S2CEntityHeadLookPacket = struct {
     entity_id: i32 = 0,
     look: zlm.Vec2 = zlm.Vec2.zero,
 
-    pub fn init(alloc: *Allocator) !*S2CEntityHeadLookPacket {
+    pub fn init(alloc: Allocator) !*S2CEntityHeadLookPacket {
         const base = try Packet.init(alloc);
 
         const packet = try alloc.create(S2CEntityHeadLookPacket);
@@ -1000,7 +1000,7 @@ pub const S2CEntityHeadLookPacket = struct {
         return packet;
     }
 
-    pub fn encode(self: *S2CEntityHeadLookPacket, alloc: *Allocator) !*Packet {
+    pub fn encode(self: *S2CEntityHeadLookPacket, alloc: Allocator) !*Packet {
         self.base.id = 0x3a;
         self.base.read_write = true;
 
@@ -1017,7 +1017,7 @@ pub const S2CEntityHeadLookPacket = struct {
         return self.base;
     }
 
-    pub fn deinit(self: *S2CEntityHeadLookPacket, alloc: *Allocator) void {
+    pub fn deinit(self: *S2CEntityHeadLookPacket, alloc: Allocator) void {
         alloc.destroy(self);
     }
 };
@@ -1028,7 +1028,7 @@ pub const S2CHeldItemChangePacket = struct {
 
     slot: u8 = 0,
 
-    pub fn init(alloc: *Allocator) !*S2CHeldItemChangePacket {
+    pub fn init(alloc: Allocator) !*S2CHeldItemChangePacket {
         const base = try Packet.init(alloc);
 
         const packet = try alloc.create(S2CHeldItemChangePacket);
@@ -1038,7 +1038,7 @@ pub const S2CHeldItemChangePacket = struct {
         return packet;
     }
 
-    pub fn encode(self: *S2CHeldItemChangePacket, alloc: *Allocator) !*Packet {
+    pub fn encode(self: *S2CHeldItemChangePacket, alloc: Allocator) !*Packet {
         self.base.id = 0x3f;
         self.base.read_write = true;
 
@@ -1054,7 +1054,7 @@ pub const S2CHeldItemChangePacket = struct {
         return self.base;
     }
 
-    pub fn deinit(self: *S2CHeldItemChangePacket, alloc: *Allocator) void {
+    pub fn deinit(self: *S2CHeldItemChangePacket, alloc: Allocator) void {
         alloc.destroy(self);
     }
 };
@@ -1066,7 +1066,7 @@ pub const S2CUpdateViewPositionPacket = struct {
     chunk_x: i32 = 0,
     chunk_z: i32 = 0,
 
-    pub fn init(alloc: *Allocator) !*S2CUpdateViewPositionPacket {
+    pub fn init(alloc: Allocator) !*S2CUpdateViewPositionPacket {
         const base = try Packet.init(alloc);
 
         const packet = try alloc.create(S2CUpdateViewPositionPacket);
@@ -1076,7 +1076,7 @@ pub const S2CUpdateViewPositionPacket = struct {
         return packet;
     }
 
-    pub fn encode(self: *S2CUpdateViewPositionPacket, alloc: *Allocator) !*Packet {
+    pub fn encode(self: *S2CUpdateViewPositionPacket, alloc: Allocator) !*Packet {
         self.base.id = 0x40;
         self.base.read_write = true;
 
@@ -1093,7 +1093,7 @@ pub const S2CUpdateViewPositionPacket = struct {
         return self.base;
     }
 
-    pub fn deinit(self: *S2CUpdateViewPositionPacket, alloc: *Allocator) void {
+    pub fn deinit(self: *S2CUpdateViewPositionPacket, alloc: Allocator) void {
         alloc.destroy(self);
     }
 };
@@ -1104,7 +1104,7 @@ pub const S2CSpawnPositionPacket = struct {
 
     pos: zlm.Vec3 = zlm.Vec3.zero,
 
-    pub fn init(alloc: *Allocator) !*S2CSpawnPositionPacket {
+    pub fn init(alloc: Allocator) !*S2CSpawnPositionPacket {
         const base = try Packet.init(alloc);
 
         const packet = try alloc.create(S2CSpawnPositionPacket);
@@ -1114,7 +1114,7 @@ pub const S2CSpawnPositionPacket = struct {
         return packet;
     }
 
-    pub fn encode(self: *S2CSpawnPositionPacket, alloc: *Allocator) !*Packet {
+    pub fn encode(self: *S2CSpawnPositionPacket, alloc: Allocator) !*Packet {
         self.base.id = 0x42;
         self.base.read_write = true;
 
@@ -1130,7 +1130,7 @@ pub const S2CSpawnPositionPacket = struct {
         return self.base;
     }
 
-    pub fn deinit(self: *S2CSpawnPositionPacket, alloc: *Allocator) void {
+    pub fn deinit(self: *S2CSpawnPositionPacket, alloc: Allocator) void {
         alloc.destroy(self);
     }
 };

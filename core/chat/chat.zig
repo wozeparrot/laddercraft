@@ -32,6 +32,7 @@ pub const Color = enum {
     white,
 
     pub fn jsonStringify(self: Color, options: json.StringifyOptions, out_stream: anytype) !void {
+        _ = options;
         try std.fmt.format(out_stream, "\"{s}\"", .{@tagName(self)});
     }
 };

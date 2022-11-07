@@ -13,7 +13,7 @@ pub const CompactedDataArray = struct {
     elements_per_long: u64,
     mask: u64,
 
-    pub fn init(alloc: *Allocator, element_bits: u6, elements: usize) !CompactedDataArray {
+    pub fn init(alloc: Allocator, element_bits: u6, elements: usize) !CompactedDataArray {
         const elements_per_long = 64 / @intCast(u64, element_bits);
 
         const data = try alloc.alloc(u64, (elements + @intCast(usize, elements_per_long) - 1) / @intCast(usize, elements_per_long));
@@ -29,7 +29,7 @@ pub const CompactedDataArray = struct {
         };
     }
 
-    pub fn deinit(self: *CompactedDataArray, alloc: *Allocator) void {
+    pub fn deinit(self: *CompactedDataArray, alloc: Allocator) void {
         alloc.free(self.data);
     }
 
@@ -79,8 +79,8 @@ test "CompactedDataArray" {
     data.set(22, 0);
     data.set(23, 2);
 
-    std.testing.expectEqual(data.data[0], 0x0020863148418841);
-    std.testing.expectEqual(data.data[1], 0x01018A7260F68C87);
+    try std.testing.expectEqual(data.data[0], 0x0020863148418841);
+    try std.testing.expectEqual(data.data[1], 0x01018A7260F68C87);
 }
 
 // Compacted Data Array but with a Palette

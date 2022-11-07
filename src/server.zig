@@ -16,7 +16,7 @@ const NetworkHandler = @import("player/network_handler.zig").NetworkHandler;
 const Group = @import("group.zig").Group;
 
 pub const Server = struct {
-    alloc: *Allocator,
+    alloc: Allocator,
 
     seed: u64,
     random: rand.Random,
@@ -31,12 +31,12 @@ pub const Server = struct {
 
     is_alive: std.atomic.Atomic(bool),
 
-    pub fn init(alloc: *Allocator, seed: u64) !Server {
+    pub fn init(alloc: Allocator, seed: u64) !Server {
         return Server{
             .alloc = alloc,
 
             .seed = seed,
-            .random = rand.DefaultPrng.init(seed).random,
+            .random = rand.DefaultPrng.init(seed).random(),
             .current_entity_id = std.atomic.Atomic(i32).init(0),
 
             .stream_server = net.StreamServer.init(.{ .reuse_address = true }),
@@ -85,17 +85,17 @@ pub const Server = struct {
             };
 
             // create network_handler
-            const network_handler = NetworkHandler.init(self.alloc, conn) catch |err| {
+            const network_handler = NetworkHandler.init(self.alloc, conn) catch {
                 conn.stream.close();
                 continue;
             };
 
-            // add to holding group
+            // add to holding until handshake is complete
             const held = self.holding_lock.acquire();
             try self.holding.put(network_handler, {});
             held.release();
 
-            network_handler.start(self) catch |err| {
+            network_handler.start(self) catch {
                 conn.stream.close();
                 continue;
             };
@@ -105,29 +105,37 @@ pub const Server = struct {
     // transfers a player from one group to another
     pub fn transferToGroup(self: *Server, player: *Player, group: *Group) !void {
         if (player.group) |old_group| {
-            old_group.removePlayer(player);
+            try old_group.removePlayer(player);
             try group.addPlayer(player);
         } else {
+            if (self.holding.contains(player.network_handler)) {
+                const held = self.holding_lock.acquire();
+                _ = self.holding.swapRemove(player.network_handler);
+                held.release();
+            }
             try group.addPlayer(player);
         }
     }
 
     // chooses the best group to put a new playing in
-    pub fn findBestGroup(self: *Server, player: *Player) !void {
+    pub fn findBestGroup(self: *Server, player: *Player) !*Group {
+        _ = player;
         const held = self.groups_lock.acquire();
         defer held.release();
 
         if (self.groups.count() == 0) {
             var group = try Group.init(self.alloc, self);
-            try group.addPlayer(player);
             try group.start();
             try self.groups.put(group, {});
+
+            return group;
         } else {
             for (self.groups.keys()) |key| {
-                try key.addPlayer(player);
-                break;
+                return key;
             }
         }
+
+        unreachable;
     }
 
     pub fn sendPacketToAll(self: *Server, pkt: *lc_packet.Packet, player: ?*Player) !void {

@@ -2,7 +2,7 @@ const std = @import("std");
 const mem = std.mem;
 const Allocator = mem.Allocator;
 
-const zlm = @import("zlm").specializeOn(f64);
+const zlm = @import("zlm").SpecializeOn(f64);
 
 pub fn readVarInt(reader: anytype) !i32 {
     var result: u32 = 0;
@@ -23,7 +23,7 @@ pub fn readVarInt(reader: anytype) !i32 {
     return @bitCast(i32, result);
 }
 
-pub fn readByteArray(alloc: *Allocator, reader: anytype, length: i32) ![]u8 {
+pub fn readByteArray(alloc: Allocator, reader: anytype, length: i32) ![]u8 {
     var buf = try alloc.alloc(u8, @intCast(usize, length));
     var strm = std.io.fixedBufferStream(buf);
     var wr = strm.writer();
@@ -59,7 +59,7 @@ pub fn writeByteArray(writer: anytype, data: []const u8) !void {
     try writer.writeAll(data);
 }
 
-pub fn writeJSONStruct(alloc: *Allocator, writer: anytype, value: anytype) !void {
+pub fn writeJSONStruct(alloc: Allocator, writer: anytype, value: anytype) !void {
     var array_list = std.ArrayList(u8).init(alloc);
     defer array_list.deinit();
 
@@ -68,6 +68,6 @@ pub fn writeJSONStruct(alloc: *Allocator, writer: anytype, value: anytype) !void
     try writeByteArray(writer, array_list.toOwnedSlice());
 }
 
-pub fn toPacketPosition(vec: zlm.Vec3) callconv(.Inline) u64 {
+pub inline fn toPacketPosition(vec: zlm.Vec3) u64 {
     return (@as(u64, @bitCast(u32, @floatToInt(i32, vec.x) & 0x3FFFFFF)) << 38) | (@as(u64, @bitCast(u32, @floatToInt(i32, vec.z) & 0x3FFFFFF)) << 12) | (@as(u64, @bitCast(u32, @floatToInt(i32, vec.y))) & 0xFFF);
 }

@@ -2,7 +2,7 @@ const std = @import("std");
 const mem = std.mem;
 const Allocator = mem.Allocator;
 
-const zlm = @import("zlm").specializeOn(f64);
+const zlm = @import("zlm").SpecializeOn(f64);
 
 const entity = @import("../entity/entity.zig");
 const UUID = @import("../uuid.zig").UUID;
@@ -11,7 +11,7 @@ pub const inventory = @import("inventory.zig");
 const Inventory = inventory.Inventory;
 
 pub const Player = struct {
-    alloc: *Allocator,
+    alloc: Allocator,
     base: *entity.Entity,
 
     username: []const u8,
@@ -22,7 +22,7 @@ pub const Player = struct {
     inventory: Inventory,
     selected_hotbar_slot: u8,
 
-    pub fn init(alloc: *Allocator) !Player {
+    pub fn init(alloc: Allocator) !Player {
         const base = try alloc.create(entity.Entity);
         base.* = .{
             .kind = .player,
@@ -57,11 +57,11 @@ pub const Player = struct {
         self.alloc.destroy(self.base);
     }
 
-    pub fn chunkX(self: *Player) callconv(.Inline) i32 {
+    pub inline fn chunkX(self: *Player) i32 {
         return @divFloor(@floatToInt(i32, self.base.pos.x), 16);
     }
 
-    pub fn chunkZ(self: *Player) callconv(.Inline) i32 {
+    pub inline fn chunkZ(self: *Player) i32 {
         return @divFloor(@floatToInt(i32, self.base.pos.z), 16);
     }
 

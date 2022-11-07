@@ -13,7 +13,7 @@ pub fn main() !void {
 
     log.info("starting", .{});
 
-    var server = try Server.init(&gpa.allocator, l_config.seed);
+    var server = try Server.init(gpa.allocator(), l_config.seed);
     defer server.deinit();
 
     try server.serve(try std.net.Address.resolveIp(l_config.bind_address, l_config.bind_port));

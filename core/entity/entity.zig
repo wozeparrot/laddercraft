@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const zlm = @import("zlm").specializeOn(f64);
+const zlm = @import("zlm").SpecializeOn(f64);
 
 const UUID = @import("../uuid.zig").UUID;
 
