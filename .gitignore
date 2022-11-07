@@ -7,3 +7,6 @@
 
 zig-cache/
 zig-out/
+
+.direnv/
+result
