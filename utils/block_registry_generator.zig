@@ -119,11 +119,11 @@ pub fn main() !void {
                         if (std.mem.eql(u8, slice, "id")) {
                             try writer.writeAll(".id = ");
                         } else if (std.mem.eql(u8, slice, "default")) {
-                            try writer.writeAll(",\n.default = true");
+                            try writer.writeAll(".default = true,\n");
 
                             try b2dsm_writer.print("{}, ", .{current_state_id - 1});
                         } else if (std.mem.eql(u8, slice, "properties")) {
-                            try writer.writeAll(".properties = &[_]Block.Property{\n");
+                            try writer.writeAll(",\n.properties = &[_]Block.Property{\n");
                             state = .s_properties;
                         }
                     },
