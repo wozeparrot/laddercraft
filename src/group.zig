@@ -229,7 +229,6 @@ pub const Group = struct {
 
                 const pkt = try packet.S2CChunkDataPacket.init(self.alloc);
                 pkt.chunk = self.getChunk(chunk_id);
-                pkt.full_chunk = true;
                 player.network_handler.sendPacket(try pkt.encode(self.alloc));
                 pkt.deinit(self.alloc);
             } else {
@@ -254,7 +253,7 @@ pub const Group = struct {
         var chunk = self.chunks.get((@bitCast(u64, @as(i64, chunk_x)) << 32) | @bitCast(u32, chunk_z)).?;
         const changed = try chunk.setBlock(std.math.absCast(@mod(pos.x, 16)), @intCast(u32, pos.y), std.math.absCast(@mod(pos.z, 16)), block_state);
         if (changed) {
-            const pkt = try packet.S2CBlockChangePacket.init(self.alloc);
+            const pkt = try packet.S2CBlockUpdatePacket.init(self.alloc);
             pkt.position = pos;
             pkt.block_state = block_state;
             try self.sendPacketToAll(try pkt.encode(self.alloc), null);

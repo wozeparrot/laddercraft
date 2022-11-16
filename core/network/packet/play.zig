@@ -16,8 +16,10 @@ const world = @import("../../world/world.zig");
 const nbt = @import("../../nbt/nbt.zig");
 const player = @import("../../player/player.zig");
 
-// c2s | chat message packet | 0x03
+// c2s | chat message packet | 0x05
 pub const C2SChatMessagePacket = struct {
+    pub const PacketID = 0x05;
+
     base: *Packet,
 
     message: []const u8,
@@ -43,8 +45,10 @@ pub const C2SChatMessagePacket = struct {
     }
 };
 
-// s2c | spawn player packet | 0x04
+// s2c | spawn player packet | 0x02
 pub const S2CSpawnPlayerPacket = struct {
+    pub const PacketID = 0x02;
+
     base: *Packet,
 
     entity_id: i32 = 0,
@@ -63,7 +67,7 @@ pub const S2CSpawnPlayerPacket = struct {
     }
 
     pub fn encode(self: *S2CSpawnPlayerPacket, alloc: Allocator) !*Packet {
-        self.base.id = 0x04;
+        self.base.id = PacketID;
         self.base.read_write = true;
 
         var array_list = std.ArrayList(u8).init(alloc);
@@ -90,8 +94,10 @@ pub const S2CSpawnPlayerPacket = struct {
     }
 };
 
-// s2c | entity animation packet | 0x05
+// s2c | entity animation packet | 0x03
 pub const S2CEntityAnimationPacket = struct {
+    pub const PacketID = 0x03;
+
     base: *Packet,
 
     entity_id: i32 = 0,
@@ -108,7 +114,7 @@ pub const S2CEntityAnimationPacket = struct {
     }
 
     pub fn encode(self: *S2CEntityAnimationPacket, alloc: Allocator) !*Packet {
-        self.base.id = 0x05;
+        self.base.id = PacketID;
         self.base.read_write = true;
 
         var array_list = std.ArrayList(u8).init(alloc);
@@ -129,25 +135,27 @@ pub const S2CEntityAnimationPacket = struct {
     }
 };
 
-// s2c | block change packet | 0x0b
-pub const S2CBlockChangePacket = struct {
+// s2c | block update packet | 0x09
+pub const S2CBlockUpdatePacket = struct {
+    pub const PacketID = 0x09;
+
     base: *Packet,
 
     position: world.block.BlockPos = undefined,
     block_state: world.block.BlockState = 0,
 
-    pub fn init(alloc: Allocator) !*S2CBlockChangePacket {
+    pub fn init(alloc: Allocator) !*S2CBlockUpdatePacket {
         const base = try Packet.init(alloc);
 
-        const packet = try alloc.create(S2CBlockChangePacket);
-        packet.* = S2CBlockChangePacket{
+        const packet = try alloc.create(S2CBlockUpdatePacket);
+        packet.* = S2CBlockUpdatePacket{
             .base = base,
         };
         return packet;
     }
 
-    pub fn encode(self: *S2CBlockChangePacket, alloc: Allocator) !*Packet {
-        self.base.id = 0x0b;
+    pub fn encode(self: *S2CBlockUpdatePacket, alloc: Allocator) !*Packet {
+        self.base.id = PacketID;
         self.base.read_write = true;
 
         var array_list = try std.ArrayList(u8).initCapacity(alloc, 4096);
@@ -163,31 +171,32 @@ pub const S2CBlockChangePacket = struct {
         return self.base;
     }
 
-    pub fn deinit(self: *S2CBlockChangePacket, alloc: Allocator) void {
+    pub fn deinit(self: *S2CBlockUpdatePacket, alloc: Allocator) void {
         alloc.destroy(self);
     }
 };
 
-// s2c | chat message packet | 0x0e
-pub const S2CChatMessagePacket = struct {
+// s2c | system chat message packet | 0x62
+pub const S2CSystemChatMessagePacket = struct {
+    pub const PacketID = 0x62;
+
     base: *Packet,
 
     message: chat.Text = undefined,
-    position: u8 = 0,
-    sender: UUID = UUID.zero(),
+    overlay: bool = false,
 
-    pub fn init(alloc: Allocator) !*S2CChatMessagePacket {
+    pub fn init(alloc: Allocator) !*S2CSystemChatMessagePacket {
         const base = try Packet.init(alloc);
 
-        const packet = try alloc.create(S2CChatMessagePacket);
-        packet.* = S2CChatMessagePacket{
+        const packet = try alloc.create(S2CSystemChatMessagePacket);
+        packet.* = S2CSystemChatMessagePacket{
             .base = base,
         };
         return packet;
     }
 
-    pub fn encode(self: *S2CChatMessagePacket, alloc: Allocator) !*Packet {
-        self.base.id = 0x0e;
+    pub fn encode(self: *S2CSystemChatMessagePacket, alloc: Allocator) !*Packet {
+        self.base.id = PacketID;
         self.base.read_write = true;
 
         var array_list = try std.ArrayList(u8).initCapacity(alloc, 4096);
@@ -195,8 +204,7 @@ pub const S2CChatMessagePacket = struct {
         const wr = array_list.writer();
 
         try utils.writeJSONStruct(alloc, wr, self.message);
-        try wr.writeByte(self.position);
-        try wr.writeIntBig(u128, self.sender.uuid);
+        try wr.writeByte(@boolToInt(self.overlay));
 
         self.base.data = array_list.toOwnedSlice();
         self.base.length = @intCast(i32, self.base.data.len) + 1;
@@ -204,13 +212,15 @@ pub const S2CChatMessagePacket = struct {
         return self.base;
     }
 
-    pub fn deinit(self: *S2CChatMessagePacket, alloc: Allocator) void {
+    pub fn deinit(self: *S2CSystemChatMessagePacket, alloc: Allocator) void {
         alloc.destroy(self);
     }
 };
 
-// c2s | player position packet | 0x12
+// c2s | player position packet | 0x14
 pub const C2SPlayerPositionPacket = struct {
+    pub const PacketID = 0x14;
+
     base: *Packet,
 
     x: f64,
@@ -243,8 +253,10 @@ pub const C2SPlayerPositionPacket = struct {
     }
 };
 
-// c2s | player position and rotation packet | 0x13
+// c2s | player position and rotation packet | 0x15
 pub const C2SPlayerPositionRotationPacket = struct {
+    pub const PacketID = 0x15;
+
     base: *Packet,
 
     x: f64,
@@ -283,8 +295,10 @@ pub const C2SPlayerPositionRotationPacket = struct {
     }
 };
 
-// c2s | player position packet | 0x14
+// c2s | player rotation packet | 0x16
 pub const C2SPlayerRotationPacket = struct {
+    pub const PacketID = 0x16;
+
     base: *Packet,
 
     yaw: f32,
@@ -314,8 +328,10 @@ pub const C2SPlayerRotationPacket = struct {
     }
 };
 
-// c2s | player digging packet | 0x1b
-pub const C2SPlayerDiggingPacket = struct {
+// c2s | player action packet | 0x1d
+pub const C2SPlayerActionPacket = struct {
+    pub const PacketID = 0x1d;
+
     base: *Packet,
 
     status: i32,
@@ -323,7 +339,7 @@ pub const C2SPlayerDiggingPacket = struct {
     position: world.block.BlockPos,
     face: i32,
 
-    pub fn decode(alloc: Allocator, base: *Packet) !*C2SPlayerDiggingPacket {
+    pub fn decode(alloc: Allocator, base: *Packet) !*C2SPlayerActionPacket {
         const brd = base.toStream().reader();
 
         const status = try utils.readVarInt(brd);
@@ -331,8 +347,8 @@ pub const C2SPlayerDiggingPacket = struct {
         const position = world.block.BlockPos.fromPacketPosition(try brd.readIntBig(u64));
         const face = try brd.readByte();
 
-        const packet = try alloc.create(C2SPlayerDiggingPacket);
-        packet.* = C2SPlayerDiggingPacket{
+        const packet = try alloc.create(C2SPlayerActionPacket);
+        packet.* = C2SPlayerActionPacket{
             .base = base,
 
             .status = status,
@@ -343,13 +359,15 @@ pub const C2SPlayerDiggingPacket = struct {
         return packet;
     }
 
-    pub fn deinit(self: *C2SPlayerDiggingPacket, alloc: Allocator) void {
+    pub fn deinit(self: *C2SPlayerActionPacket, alloc: Allocator) void {
         alloc.destroy(self);
     }
 };
 
 // s2c | unload chunk packet | 0x1c
 pub const S2CUnloadChunkPacket = struct {
+    pub const PacketID = 0x1c;
+
     base: *Packet,
 
     chunk_x: i32 = 0,
@@ -387,8 +405,10 @@ pub const S2CUnloadChunkPacket = struct {
     }
 };
 
-// s2c | keep alive packet | 0x1f
+// s2c | keep alive packet | 0x20
 pub const S2CKeepAlivePacket = struct {
+    pub const PacketID = 0x20;
+
     base: *Packet,
 
     id: u64 = 0,
@@ -404,7 +424,7 @@ pub const S2CKeepAlivePacket = struct {
     }
 
     pub fn encode(self: *S2CKeepAlivePacket, alloc: Allocator) !*Packet {
-        self.base.id = 0x1f;
+        self.base.id = PacketID;
         self.base.read_write = true;
         self.base.length = @sizeOf(S2CKeepAlivePacket) - @sizeOf(usize) + 1;
 
@@ -424,12 +444,13 @@ pub const S2CKeepAlivePacket = struct {
     }
 };
 
-// s2c | chunk data packet | 0x20
+// s2c | chunk data packet | 0x21
 pub const S2CChunkDataPacket = struct {
+    pub const PacketID = 0x21;
+
     base: *Packet,
 
     chunk: *world.chunk.Chunk = undefined,
-    full_chunk: bool = true,
 
     pub fn init(alloc: Allocator) !*S2CChunkDataPacket {
         const base = try Packet.init(alloc);
@@ -442,24 +463,18 @@ pub const S2CChunkDataPacket = struct {
     }
 
     pub fn encode(self: *S2CChunkDataPacket, alloc: Allocator) !*Packet {
-        self.base.id = 0x20;
+        self.base.id = PacketID;
         self.base.read_write = true;
 
         var array_list = try std.ArrayList(u8).initCapacity(alloc, 4096);
         defer array_list.deinit();
         const wr = array_list.writer();
 
+        // chunk pos
         try wr.writeIntBig(i32, self.chunk.x);
         try wr.writeIntBig(i32, self.chunk.z);
 
-        try wr.writeByte(@boolToInt(self.full_chunk));
-
-        var bitmask: u32 = 0;
-        for (self.chunk.sections.keys()) |key| {
-            bitmask |= @as(u32, 1) << @intCast(u5, key);
-        }
-        try utils.writeVarInt(wr, @bitCast(i32, bitmask));
-
+        // heightmaps
         var heightmap_data_array = try world.chunk.CompactedDataArray.init(alloc, 9, 256);
         defer heightmap_data_array.deinit(alloc);
         var z: u32 = 0;
@@ -482,8 +497,7 @@ pub const S2CChunkDataPacket = struct {
         };
         try nbt.writeTag(wr, heightmap_nbt, false);
 
-        try utils.writeByteArray(wr, &[_]u8{0} ** 1024);
-
+        // chunk sections
         var cs_data = std.ArrayList(u8).init(alloc);
         defer cs_data.deinit();
         var cs_wr = cs_data.writer();
@@ -497,6 +511,22 @@ pub const S2CChunkDataPacket = struct {
         }
         try utils.writeByteArray(wr, cs_data.items);
 
+        // block entities
+        try utils.writeVarInt(wr, 0);
+
+        // trusted edges
+        try wr.writeByte(@boolToInt(false));
+
+        // TODO: handle bitsets
+        try utils.writeVarInt(wr, 0);
+        try utils.writeVarInt(wr, 0);
+        try utils.writeVarInt(wr, 0);
+        try utils.writeVarInt(wr, 0);
+
+        // sky light array
+        try utils.writeVarInt(wr, 0);
+
+        // block light array
         try utils.writeVarInt(wr, 0);
 
         self.base.data = array_list.toOwnedSlice();
@@ -510,19 +540,26 @@ pub const S2CChunkDataPacket = struct {
     }
 };
 
-// s2c | join game packet | 0x24
+// s2c | join game packet | 0x25
 pub const S2CJoinGamePacket = struct {
+    pub const PacketID = 0x25;
     base: *Packet,
 
     entity_id: i32 = 0,
     gamemode: game.Gamemode = .{ .mode = .survival, .hardcore = false },
     previous_gamemode: i8 = -1,
-    worlds: []const []const u8 = &[_][]const u8{"world"},
-    dimension_codec: nbt.Tag = undefined,
-    dimension: nbt.Tag = undefined,
-    world_name: []const u8 = "world",
+    dimensions: []const []const u8 = &[_][]const u8{"world"},
+    registry_codec: nbt.Tag = .{
+        .compound = .{
+            .name = "",
+            .payload = &[_]nbt.Tag{},
+        },
+    },
+    dimension_type: []const u8 = "minecraft:overworld",
+    dimension_name: []const u8 = "world",
     hashed_seed: u64 = 0,
-    view_distance: u8 = 2,
+    view_distance: u8 = 8,
+    simulation_distace: u8 = 8,
     gamerules: game.Gamerules = .{},
     is_debug: bool = false,
     is_flat: bool = false,
@@ -538,38 +575,58 @@ pub const S2CJoinGamePacket = struct {
     }
 
     pub fn encode(self: *S2CJoinGamePacket, alloc: Allocator) !*Packet {
-        self.base.id = 0x24;
+        self.base.id = PacketID;
         self.base.read_write = true;
 
         var array_list = std.ArrayList(u8).init(alloc);
         defer array_list.deinit();
         const wr = array_list.writer();
 
+        // entity id
         try wr.writeIntBig(i32, self.entity_id);
 
+        // gamemode
         try wr.writeByte(@boolToInt(self.gamemode.hardcore));
         try wr.writeByte(@enumToInt(self.gamemode.mode));
         try wr.writeIntBig(i8, self.previous_gamemode);
 
-        try utils.writeVarInt(wr, @intCast(i32, self.worlds.len));
-        for (self.worlds) |w| try utils.writeByteArray(wr, w);
+        // dimensions
+        try utils.writeVarInt(wr, @intCast(i32, self.dimensions.len));
+        for (self.dimensions) |d| try utils.writeByteArray(wr, d);
 
-        try nbt.writeTag(wr, self.dimension_codec, false);
-        try nbt.writeTag(wr, self.dimension, false);
+        //registry codec
+        try nbt.writeTag(wr, self.registry_codec, false);
 
-        try utils.writeByteArray(wr, self.world_name);
+        // dimensions type
+        try utils.writeByteArray(wr, self.dimension_type);
 
+        // dimension name
+        try utils.writeByteArray(wr, self.dimension_name);
+
+        // hashed seed
         try wr.writeIntBig(u64, self.hashed_seed);
 
+        // max players
         try wr.writeByte(0);
 
+        // view distance
         try utils.writeVarInt(wr, self.view_distance);
 
+        // simulation distance
+        try utils.writeVarInt(wr, self.simulation_distace);
+
+        // gamerules
         try wr.writeByte(@boolToInt(self.gamerules.reduced_debug_info));
         try wr.writeByte(@boolToInt(self.gamerules.do_immediate_respawn));
 
+        // is debug
         try wr.writeByte(@boolToInt(self.is_debug));
+
+        // is flat
         try wr.writeByte(@boolToInt(self.is_flat));
+
+        // TODO: handle death location
+        try wr.writeByte(@boolToInt(false));
 
         self.base.data = array_list.toOwnedSlice();
         self.base.length = @intCast(i32, self.base.data.len) + 1;
@@ -582,8 +639,10 @@ pub const S2CJoinGamePacket = struct {
     }
 };
 
-// c2s | held item change packet | 0x25
+// c2s | held item change packet | 0x28
 pub const C2SHeldItemChangePacket = struct {
+    pub const PacketID = 0x28;
+
     base: *Packet,
 
     slot: u8,
@@ -607,8 +666,10 @@ pub const C2SHeldItemChangePacket = struct {
     }
 };
 
-// s2c | entity position packet | 0x27
+// s2c | entity position packet | 0x28
 pub const S2CEntityPositionPacket = struct {
+    pub const PacketID = 0x28;
+
     base: *Packet,
 
     entity_id: i32 = 0,
@@ -626,7 +687,7 @@ pub const S2CEntityPositionPacket = struct {
     }
 
     pub fn encode(self: *S2CEntityPositionPacket, alloc: Allocator) !*Packet {
-        self.base.id = 0x27;
+        self.base.id = PacketID;
         self.base.read_write = true;
 
         var array_list = std.ArrayList(u8).init(alloc);
@@ -650,8 +711,10 @@ pub const S2CEntityPositionPacket = struct {
     }
 };
 
-// s2c | entity position and rotation packet | 0x28
+// s2c | entity position and rotation packet | 0x29
 pub const S2CEntityPositionRotationPacket = struct {
+    pub const PacketID = 0x29;
+
     base: *Packet,
 
     entity_id: i32 = 0,
@@ -670,7 +733,7 @@ pub const S2CEntityPositionRotationPacket = struct {
     }
 
     pub fn encode(self: *S2CEntityPositionRotationPacket, alloc: Allocator) !*Packet {
-        self.base.id = 0x28;
+        self.base.id = PacketID;
         self.base.read_write = true;
 
         var array_list = std.ArrayList(u8).init(alloc);
@@ -696,8 +759,54 @@ pub const S2CEntityPositionRotationPacket = struct {
     }
 };
 
-// c2s | creative inventory packet | 0x28
+// s2c | entity rotation packet | 0x2a
+pub const S2CEntityRotationPacket = struct {
+    pub const PacketID = 0x2a;
+
+    base: *Packet,
+
+    entity_id: i32 = 0,
+    look: zlm.Vec2 = zlm.Vec2.zero,
+    on_ground: bool = true,
+
+    pub fn init(alloc: Allocator) !*S2CEntityRotationPacket {
+        const base = try Packet.init(alloc);
+
+        const packet = try alloc.create(S2CEntityRotationPacket);
+        packet.* = S2CEntityRotationPacket{
+            .base = base,
+        };
+        return packet;
+    }
+
+    pub fn encode(self: *S2CEntityRotationPacket, alloc: Allocator) !*Packet {
+        self.base.id = PacketID;
+        self.base.read_write = true;
+
+        var array_list = std.ArrayList(u8).init(alloc);
+        defer array_list.deinit();
+        const wr = array_list.writer();
+
+        try utils.writeVarInt(wr, self.entity_id);
+        try wr.writeIntBig(i8, @bitCast(i8, @floatToInt(u8, (@mod(self.look.x, 360) / 360) * 256)));
+        try wr.writeIntBig(i8, @bitCast(i8, @floatToInt(u8, (@mod(self.look.y, 360) / 360) * 256)));
+        try wr.writeByte(@boolToInt(self.on_ground));
+
+        self.base.data = array_list.toOwnedSlice();
+        self.base.length = @intCast(i32, self.base.data.len) + 1;
+
+        return self.base;
+    }
+
+    pub fn deinit(self: *S2CEntityRotationPacket, alloc: Allocator) void {
+        alloc.destroy(self);
+    }
+};
+
+// c2s | creative inventory packet | 0x2b
 pub const C2SCreativeInventoryActionPacket = struct {
+    pub const PacketID = 0x2b;
+
     base: *Packet,
 
     slot: i16,
@@ -728,61 +837,21 @@ pub const C2SCreativeInventoryActionPacket = struct {
     }
 };
 
-// s2c | entity rotation packet | 0x29
-pub const S2CEntityRotationPacket = struct {
-    base: *Packet,
+// c2s | swing hand packet | 0x2f
+pub const C2SSwingHandPacket = struct {
+    pub const PacketID = 0x2f;
 
-    entity_id: i32 = 0,
-    look: zlm.Vec2 = zlm.Vec2.zero,
-    on_ground: bool = true,
-
-    pub fn init(alloc: Allocator) !*S2CEntityRotationPacket {
-        const base = try Packet.init(alloc);
-
-        const packet = try alloc.create(S2CEntityRotationPacket);
-        packet.* = S2CEntityRotationPacket{
-            .base = base,
-        };
-        return packet;
-    }
-
-    pub fn encode(self: *S2CEntityRotationPacket, alloc: Allocator) !*Packet {
-        self.base.id = 0x29;
-        self.base.read_write = true;
-
-        var array_list = std.ArrayList(u8).init(alloc);
-        defer array_list.deinit();
-        const wr = array_list.writer();
-
-        try utils.writeVarInt(wr, self.entity_id);
-        try wr.writeIntBig(i8, @bitCast(i8, @floatToInt(u8, (@mod(self.look.x, 360) / 360) * 256)));
-        try wr.writeIntBig(i8, @bitCast(i8, @floatToInt(u8, (@mod(self.look.y, 360) / 360) * 256)));
-        try wr.writeByte(@boolToInt(self.on_ground));
-
-        self.base.data = array_list.toOwnedSlice();
-        self.base.length = @intCast(i32, self.base.data.len) + 1;
-
-        return self.base;
-    }
-
-    pub fn deinit(self: *S2CEntityRotationPacket, alloc: Allocator) void {
-        alloc.destroy(self);
-    }
-};
-
-// c2s | animation packet | 0x2c
-pub const C2SAnimationPacket = struct {
     base: *Packet,
 
     hand: i32,
 
-    pub fn decode(alloc: Allocator, base: *Packet) !*C2SAnimationPacket {
+    pub fn decode(alloc: Allocator, base: *Packet) !*C2SSwingHandPacket {
         const brd = base.toStream().reader();
 
         const hand = try utils.readVarInt(brd);
 
-        const packet = try alloc.create(C2SAnimationPacket);
-        packet.* = C2SAnimationPacket{
+        const packet = try alloc.create(C2SSwingHandPacket);
+        packet.* = C2SSwingHandPacket{
             .base = base,
 
             .hand = hand,
@@ -790,13 +859,15 @@ pub const C2SAnimationPacket = struct {
         return packet;
     }
 
-    pub fn deinit(self: *C2SAnimationPacket, alloc: Allocator) void {
+    pub fn deinit(self: *C2SSwingHandPacket, alloc: Allocator) void {
         alloc.destroy(self);
     }
 };
 
-// c2s | player block placement packet | 0x2e
-pub const C2SPlayerBlockPlacementPacket = struct {
+// c2s | player use item on packet | 0x31
+pub const C2SPlayerUseItemOnPacket = struct {
+    pub const PacketID = 0x31;
+
     base: *Packet,
 
     hand: i32,
@@ -810,7 +881,7 @@ pub const C2SPlayerBlockPlacementPacket = struct {
 
     inside_block: bool,
 
-    pub fn decode(alloc: Allocator, base: *Packet) !*C2SPlayerBlockPlacementPacket {
+    pub fn decode(alloc: Allocator, base: *Packet) !*C2SPlayerUseItemOnPacket {
         const brd = base.toStream().reader();
 
         const hand = try utils.readVarInt(brd);
@@ -824,8 +895,8 @@ pub const C2SPlayerBlockPlacementPacket = struct {
 
         const inside_block = if ((try brd.readByte()) == 1) true else false;
 
-        const packet = try alloc.create(C2SPlayerBlockPlacementPacket);
-        packet.* = C2SPlayerBlockPlacementPacket{
+        const packet = try alloc.create(C2SPlayerUseItemOnPacket);
+        packet.* = C2SPlayerUseItemOnPacket{
             .base = base,
 
             .hand = hand,
@@ -842,12 +913,12 @@ pub const C2SPlayerBlockPlacementPacket = struct {
         return packet;
     }
 
-    pub fn deinit(self: *C2SPlayerBlockPlacementPacket, alloc: Allocator) void {
+    pub fn deinit(self: *C2SPlayerUseItemOnPacket, alloc: Allocator) void {
         alloc.destroy(self);
     }
 };
 
-// s2c | player info packet | 0x32
+// s2c | player info packet | 0x37
 pub const S2CPlayerInfoAction = enum {
     add_player,
     remove_player,
@@ -872,6 +943,8 @@ pub const S2CPlayerInfoPlayer = struct {
     },
 };
 pub const S2CPlayerInfoPacket = struct {
+    pub const PacketID = 0x37;
+
     base: *Packet,
 
     action: S2CPlayerInfoAction = undefined,
@@ -888,7 +961,7 @@ pub const S2CPlayerInfoPacket = struct {
     }
 
     pub fn encode(self: *S2CPlayerInfoPacket, alloc: Allocator) !*Packet {
-        self.base.id = 0x32;
+        self.base.id = PacketID;
         self.base.read_write = true;
 
         var array_list = std.ArrayList(u8).init(alloc);
@@ -900,6 +973,8 @@ pub const S2CPlayerInfoPacket = struct {
         try utils.writeVarInt(wr, @intCast(i32, self.players.len));
         for (self.players) |p| {
             try wr.writeIntBig(u128, p.uuid.uuid);
+
+            std.debug.assert(self.action == p.data);
             switch (p.data) {
                 .add_player => |data| {
                     try utils.writeByteArray(wr, data.name);
@@ -934,8 +1009,10 @@ pub const S2CPlayerInfoPacket = struct {
     }
 };
 
-// s2c | player position look packet | 0x34
+// s2c | player position look packet | 0x39
 pub const S2CPlayerPositionLookPacket = struct {
+    pub const PacketID = 0x39;
+
     base: *Packet,
 
     pos: zlm.Vec3 = zlm.Vec3.zero,
@@ -954,7 +1031,7 @@ pub const S2CPlayerPositionLookPacket = struct {
     }
 
     pub fn encode(self: *S2CPlayerPositionLookPacket, alloc: Allocator) !*Packet {
-        self.base.id = 0x34;
+        self.base.id = PacketID;
         self.base.read_write = true;
 
         var array_list = std.ArrayList(u8).init(alloc);
@@ -983,8 +1060,10 @@ pub const S2CPlayerPositionLookPacket = struct {
     }
 };
 
-// s2c | entity head look packet | 0x3a
+// s2c | entity head look packet | 0x3f
 pub const S2CEntityHeadLookPacket = struct {
+    pub const PacketID = 0x3f;
+
     base: *Packet,
 
     entity_id: i32 = 0,
@@ -1001,7 +1080,7 @@ pub const S2CEntityHeadLookPacket = struct {
     }
 
     pub fn encode(self: *S2CEntityHeadLookPacket, alloc: Allocator) !*Packet {
-        self.base.id = 0x3a;
+        self.base.id = PacketID;
         self.base.read_write = true;
 
         var array_list = std.ArrayList(u8).init(alloc);
@@ -1022,8 +1101,10 @@ pub const S2CEntityHeadLookPacket = struct {
     }
 };
 
-// s2c | held item change packet | 0x3f
+// s2c | held item change packet | 0x28
 pub const S2CHeldItemChangePacket = struct {
+    pub const PacketID = 0x28;
+
     base: *Packet,
 
     slot: u8 = 0,
@@ -1039,7 +1120,7 @@ pub const S2CHeldItemChangePacket = struct {
     }
 
     pub fn encode(self: *S2CHeldItemChangePacket, alloc: Allocator) !*Packet {
-        self.base.id = 0x3f;
+        self.base.id = PacketID;
         self.base.read_write = true;
 
         var array_list = std.ArrayList(u8).init(alloc);
@@ -1059,8 +1140,10 @@ pub const S2CHeldItemChangePacket = struct {
     }
 };
 
-// s2c | update view position packet | 0x40
+// s2c | update view position packet | 0x4b
 pub const S2CUpdateViewPositionPacket = struct {
+    pub const PacketID = 0x4b;
+
     base: *Packet,
 
     chunk_x: i32 = 0,
@@ -1077,7 +1160,7 @@ pub const S2CUpdateViewPositionPacket = struct {
     }
 
     pub fn encode(self: *S2CUpdateViewPositionPacket, alloc: Allocator) !*Packet {
-        self.base.id = 0x40;
+        self.base.id = PacketID;
         self.base.read_write = true;
 
         var array_list = std.ArrayList(u8).init(alloc);
@@ -1098,11 +1181,14 @@ pub const S2CUpdateViewPositionPacket = struct {
     }
 };
 
-// s2c | spawn position packet | 0x42
+// s2c | spawn position packet | 0x4d
 pub const S2CSpawnPositionPacket = struct {
+    pub const PacketID = 0x4d;
+
     base: *Packet,
 
     pos: zlm.Vec3 = zlm.Vec3.zero,
+    angle: f32 = 0,
 
     pub fn init(alloc: Allocator) !*S2CSpawnPositionPacket {
         const base = try Packet.init(alloc);
@@ -1115,7 +1201,7 @@ pub const S2CSpawnPositionPacket = struct {
     }
 
     pub fn encode(self: *S2CSpawnPositionPacket, alloc: Allocator) !*Packet {
-        self.base.id = 0x42;
+        self.base.id = PacketID;
         self.base.read_write = true;
 
         var array_list = std.ArrayList(u8).init(alloc);
@@ -1123,6 +1209,7 @@ pub const S2CSpawnPositionPacket = struct {
         const wr = array_list.writer();
 
         try wr.writeIntBig(u64, utils.toPacketPosition(self.pos));
+        try wr.writeIntBig(i32, @bitCast(i32, self.angle));
 
         self.base.data = array_list.toOwnedSlice();
         self.base.length = @intCast(i32, self.base.data.len) + 1;
