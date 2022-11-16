@@ -23,3 +23,7 @@ Build first then
 ```sh
 ./zig-out/bin/ladder
 ```
+
+## Configuration
+
+Change the config in `src/config.zig` then rebuild.
