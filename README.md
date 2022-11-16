@@ -27,3 +27,7 @@ Build first then
 ## Configuration
 
 Change the config in `src/config.zig` then rebuild.
+
+## License
+
+See [LICENSE](LICENSE) and [NOTICE](NOTICE) for details.
