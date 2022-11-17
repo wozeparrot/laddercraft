@@ -1,4 +1,4 @@
-// Generates a block registry from minecraft's data generator
+// Generates an item registry from minecraft's data generator
 
 const std = @import("std");
 
