@@ -477,11 +477,11 @@ pub const S2CChunkDataPacket = struct {
         // heightmaps
         var heightmap_data_array = try world.chunk.CompactedDataArray.init(alloc, 9, 256);
         defer heightmap_data_array.deinit(alloc);
-        var z: u32 = 0;
-        while (z < 16) : (z += 1) {
-            var x: u32 = 0;
-            while (x < 16) : (x += 1) {
-                heightmap_data_array.set((z * 16) + x, self.chunk.getHighestBlockSection(x, z));
+        var x: u32 = 0;
+        while (x < 16) : (x += 1) {
+            var z: u32 = 0;
+            while (z < 16) : (z += 1) {
+                heightmap_data_array.set((x * 16) + z, self.chunk.getHighestBlock(x, z));
             }
         }
         const heightmap_nbt = nbt.Tag{

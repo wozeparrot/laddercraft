@@ -83,7 +83,7 @@ pub const Chunk = struct {
         } else return false;
     }
 
-    pub fn getHighestBlockSection(self: *Chunk, x: u32, z: u32) u32 {
+    pub fn getHighestBlock(self: *Chunk, x: u32, z: u32) u32 {
         var highest: u32 = 0;
         var iterator = self.sections.iterator();
         while (iterator.next()) |section| {
@@ -91,11 +91,11 @@ pub const Chunk = struct {
             while (y > 0) : (y -= 1) {
                 const block_state = section.value_ptr.getBlock(x, y, z);
                 if (block_state != 0 and highest < y + section.key_ptr.* * 16) {
-                    highest = section.key_ptr.* * 16;
+                    highest = y + section.key_ptr.* * 16;
                 }
             }
         }
-        return highest;
+        return highest + 1;
     }
 
     pub inline fn chunkID(self: *Chunk) u64 {
