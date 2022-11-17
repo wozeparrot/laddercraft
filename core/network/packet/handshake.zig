@@ -153,6 +153,9 @@ pub const S2CLoginSuccessPacket = struct {
         try wr.writeIntBig(u128, self.uuid.uuid);
         try utils.writeByteArray(wr, self.username);
 
+        // TODO: handle properties
+        try utils.writeVarInt(wr, 0);
+
         self.base.data = array_list.toOwnedSlice();
         self.base.length = @intCast(i32, self.base.data.len) + 1;
 
