@@ -70,7 +70,7 @@ pub const Player = struct {
             .display_name = null,
         } } }};
         log.debug("{}", .{pkt});
-        try self.group.?.server.sendPacketToAll(try pkt.encode(self.alloc), null);
+        try self.group.?.server.sendPacketToAll(try pkt.encode(self.alloc), self);
         pkt.deinit(self.alloc);
 
         const pkt2 = try packet.S2CSpawnPlayerPacket.init(self.alloc);

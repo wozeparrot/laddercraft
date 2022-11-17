@@ -481,17 +481,19 @@ pub const S2CChunkDataPacket = struct {
         while (z < 16) : (z += 1) {
             var x: u32 = 0;
             while (x < 16) : (x += 1) {
-                heightmap_data_array.set((z * 16) + x, self.chunk.getHighestBlockSection(@intCast(u32, x), @intCast(u32, z)));
+                heightmap_data_array.set((z * 16) + x, self.chunk.getHighestBlockSection(x, z));
             }
         }
-        var heightmap_nbt = nbt.Tag{
+        const heightmap_nbt = nbt.Tag{
             .compound = .{
                 .name = "",
                 .payload = &[_]nbt.Tag{
-                    .{ .long_array = .{
-                        .name = "MOTION_BLOCKING",
-                        .payload = @ptrCast([*]i64, heightmap_data_array.data.ptr)[0..36],
-                    } },
+                    .{
+                        .long_array = .{
+                            .name = "MOTION_BLOCKING",
+                            .payload = @ptrCast([*]i64, heightmap_data_array.data.ptr)[0..36],
+                        },
+                    },
                 },
             },
         };
@@ -503,25 +505,32 @@ pub const S2CChunkDataPacket = struct {
         var cs_wr = cs_data.writer();
         for (self.chunk.sections.values()) |section| {
             try cs_wr.writeIntBig(i16, @intCast(i16, section.block_count));
+
             try cs_wr.writeByte(section.data.element_bits);
             try utils.writeVarInt(cs_wr, @intCast(i32, section.data.data.len));
             for (section.data.data) |long| {
                 try cs_wr.writeIntBig(i64, @bitCast(i64, long));
             }
+
+            try cs_wr.writeByte(0);
+            try utils.writeVarInt(cs_wr, 0);
+            try utils.writeVarInt(cs_wr, 0);
         }
         try utils.writeByteArray(wr, cs_data.items);
 
         // block entities
         try utils.writeVarInt(wr, 0);
 
-        // trusted edges
-        try wr.writeByte(@boolToInt(false));
+        // trust edges
+        try wr.writeByte(@boolToInt(true));
 
         // TODO: handle bitsets
         try utils.writeVarInt(wr, 0);
         try utils.writeVarInt(wr, 0);
-        try utils.writeVarInt(wr, 0);
-        try utils.writeVarInt(wr, 0);
+        try utils.writeVarInt(wr, 1);
+        try wr.writeIntBig(i64, 0x3FFFF);
+        try utils.writeVarInt(wr, 1);
+        try wr.writeIntBig(i64, 0x3FFFF);
 
         // sky light array
         try utils.writeVarInt(wr, 0);
@@ -548,15 +557,10 @@ pub const S2CJoinGamePacket = struct {
     entity_id: i32 = 0,
     gamemode: game.Gamemode = .{ .mode = .survival, .hardcore = false },
     previous_gamemode: i8 = -1,
-    dimensions: []const []const u8 = &[_][]const u8{"world"},
-    registry_codec: nbt.Tag = .{
-        .compound = .{
-            .name = "",
-            .payload = &[_]nbt.Tag{},
-        },
-    },
+    dimensions: []const []const u8 = &[_][]const u8{"minecraft:world"},
+    registry_codec: nbt.Tag = undefined,
     dimension_type: []const u8 = "minecraft:overworld",
-    dimension_name: []const u8 = "world",
+    dimension_name: []const u8 = "minecraft:world",
     hashed_seed: u64 = 0,
     view_distance: u8 = 8,
     simulation_distace: u8 = 8,
@@ -993,6 +997,8 @@ pub const S2CPlayerInfoPacket = struct {
                         try wr.writeByte(1);
                         try utils.writeJSONStruct(alloc, wr, display_name);
                     } else try wr.writeByte(0);
+
+                    try wr.writeByte(@boolToInt(false));
                 },
                 .remove_player => {},
             }
@@ -1017,8 +1023,17 @@ pub const S2CPlayerPositionLookPacket = struct {
 
     pos: zlm.Vec3 = zlm.Vec3.zero,
     look: zlm.Vec2 = zlm.Vec2.zero,
-    flags: u8 = 0,
+    flags: packed struct {
+        x: bool = false,
+        y: bool = false,
+        z: bool = false,
+        yaw: bool = false,
+        pitch: bool = false,
+
+        __pad: u3 = 0,
+    } = .{},
     teleport_id: i32 = 0,
+    dismount_vehicle: bool = false,
 
     pub fn init(alloc: Allocator) !*S2CPlayerPositionLookPacket {
         const base = try Packet.init(alloc);
@@ -1045,9 +1060,11 @@ pub const S2CPlayerPositionLookPacket = struct {
         try wr.writeIntBig(i32, @floatToInt(i32, self.look.y));
         try wr.writeIntBig(i32, @floatToInt(i32, self.look.x));
 
-        try wr.writeByte(self.flags);
+        try wr.writeByte(@bitCast(u8, self.flags));
 
         try utils.writeVarInt(wr, self.teleport_id);
+
+        try wr.writeByte(@boolToInt(self.dismount_vehicle));
 
         self.base.data = array_list.toOwnedSlice();
         self.base.length = @intCast(i32, self.base.data.len) + 1;
@@ -1101,9 +1118,9 @@ pub const S2CEntityHeadLookPacket = struct {
     }
 };
 
-// s2c | held item change packet | 0x28
+// s2c | held item change packet | 0x4a
 pub const S2CHeldItemChangePacket = struct {
-    pub const PacketID = 0x28;
+    pub const PacketID = 0x4a;
 
     base: *Packet,
 

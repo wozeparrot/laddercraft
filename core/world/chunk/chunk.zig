@@ -16,7 +16,7 @@ pub const Chunk = struct {
     x: i32,
     z: i32,
 
-    pub fn initEmpty(alloc: Allocator, x: i32, z: i32) !*Chunk {
+    pub fn initEmpty(alloc: Allocator, x: i32, z: i32, world_height: i32) !*Chunk {
         const chunk = try alloc.create(Chunk);
         chunk.* = Chunk{
             .alloc = alloc,
@@ -27,11 +27,19 @@ pub const Chunk = struct {
             .x = x,
             .z = z,
         };
+
+        const section_count = @divTrunc(world_height, 16);
+        var i: u8 = 0;
+        while (i < section_count) : (i += 1) {
+            const section = try ChunkSection.init(alloc);
+            try chunk.sections.put(i, section);
+        }
+
         return chunk;
     }
 
-    pub fn initFlat(alloc: Allocator, x: i32, z: i32) !*Chunk {
-        var chunk = try initEmpty(alloc, x, z);
+    pub fn initFlat(alloc: Allocator, x: i32, z: i32, world_height: i32) !*Chunk {
+        var chunk = try initEmpty(alloc, x, z, world_height);
 
         var cy: u32 = 0;
         while (cy < 4) : (cy += 1) {
@@ -57,7 +65,7 @@ pub const Chunk = struct {
 
     pub fn getBlock(self: *Chunk, x: u32, y: u32, z: u32) block.BlockState {
         const section_y = @intCast(u8, (y / 16));
-        if (self.sections.get(section_y)) |*section| {
+        if (self.sections.getPtr(section_y)) |section| {
             return section.getBlock(x, @mod(y, 16), z);
         } else {
             return 0;
@@ -66,13 +74,12 @@ pub const Chunk = struct {
 
     pub fn setBlock(self: *Chunk, x: u32, y: u32, z: u32, block_state: block.BlockState) !bool {
         const section_y = @intCast(u8, (y / 16));
-        if (self.sections.get(section_y)) |*section| {
+        if (self.sections.getPtr(section_y)) |section| {
             return section.setBlock(x, @mod(y, 16), z, block_state);
         } else if (block_state != 0) {
-            var section = try ChunkSection.init(self.alloc);
-            _ = section.setBlock(x, @mod(y, 16), z, block_state);
+            const section = try ChunkSection.init(self.alloc);
             try self.sections.put(section_y, section);
-            return true;
+            return self.sections.getPtr(section_y).?.setBlock(x, @mod(y, 16), z, block_state);
         } else return false;
     }
 

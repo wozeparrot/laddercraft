@@ -125,8 +125,9 @@ pub const Group = struct {
     pub fn sendPacketToAll(self: *Group, pkt: *packet.Packet, player: ?*Player) !void {
         const held = self.players_lock.acquire();
         defer held.release();
+
         for (self.players.keys()) |key| {
-            if (player) |p| if (key == p) continue;
+            if (player) |p| if (key.player.base.uuid.uuid == p.player.base.uuid.uuid) continue;
             key.network_handler.sendPacket(try pkt.copy(self.alloc));
         }
         pkt.deinit(self.alloc);
@@ -148,24 +149,24 @@ pub const Group = struct {
                     .add_player = .{
                         .name = key.player.username,
                         .properties = &[0]packet.S2CPlayerInfoProperties{},
-                        .gamemode = 0,
+                        .gamemode = 1,
                         .ping = 0,
                         .display_name = null,
                     },
                 },
             }};
-            log.debug("{}", .{pkt});
+            log.debug("sent player info packet: {}", .{pkt});
             player.network_handler.sendPacket(try pkt.encode(self.alloc));
             pkt.deinit(self.alloc);
 
-            if (key == player) continue;
+            if (key.player.base.uuid.uuid == player.player.base.uuid.uuid) continue;
             if (self.players.contains(player)) {
                 const pkt2 = try packet.S2CSpawnPlayerPacket.init(self.alloc);
                 pkt2.entity_id = key.player.base.entity_id;
                 pkt2.uuid = key.player.base.uuid;
                 pkt2.pos = key.player.base.pos;
                 pkt2.look = key.player.base.look;
-                log.debug("{}", .{pkt2});
+                log.debug("sent spawn player packet: {}", .{pkt2});
                 player.network_handler.sendPacket(try pkt2.encode(self.alloc));
                 pkt2.deinit(self.alloc);
             }
@@ -236,7 +237,8 @@ pub const Group = struct {
                 player.network_handler.sendPacket(try pkt.encode(self.alloc));
                 pkt.deinit(self.alloc);
             } else {
-                const chunk = try Chunk.initFlat(self.alloc, @bitCast(i32, @truncate(u32, chunk_id >> 32)), @bitCast(i32, @truncate(u32, chunk_id)));
+                // TODO: don't hardcode world height
+                const chunk = try Chunk.initFlat(self.alloc, @bitCast(i32, @truncate(u32, chunk_id >> 32)), @bitCast(i32, @truncate(u32, chunk_id)), 256);
                 try self.captureChunk(chunk);
             }
         }

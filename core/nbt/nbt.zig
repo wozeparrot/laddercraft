@@ -90,7 +90,7 @@ pub fn writeTag(writer: anytype, tag: Tag, payload_only: bool) anyerror!void {
                 try writer.writeAll(tag.list.name);
             }
             if (tag.list.payload.len <= 0) {
-                try writer.writeByte(0);
+                try writeTag(writer, .end, false);
                 try writer.writeIntBig(i32, @intCast(i32, tag.list.payload.len));
             } else {
                 try writer.writeByte(@enumToInt(tag.list.payload[0]));
@@ -105,7 +105,7 @@ pub fn writeTag(writer: anytype, tag: Tag, payload_only: bool) anyerror!void {
                 try writer.writeAll(tag.compound.name);
             }
             for (tag.compound.payload) |t| try writeTag(writer, t, false);
-            try writer.writeByte(0);
+            try writeTag(writer, .end, false);
         },
         .int_array => {
             if (!payload_only) {

@@ -475,29 +475,30 @@ pub const NetworkHandler = struct {
         const spkt = try packet.S2CJoinGamePacket.init(self.alloc);
         spkt.entity_id = self.player.?.player.base.entity_id;
         spkt.gamemode = .{ .mode = .creative, .hardcore = false };
-        log.debug("sending join game packet", .{});
+        spkt.registry_codec = network.BASIC_REGISTRY_CODEC;
         self.sendPacket(try spkt.encode(self.alloc));
+        log.debug("sent join game packet: {}", .{spkt.base});
         spkt.deinit(self.alloc);
 
         // send player position look packet
         const spkt2 = try packet.S2CPlayerPositionLookPacket.init(self.alloc);
         spkt2.pos = self.player.?.player.base.pos;
-        log.debug("sending player position look packet", .{});
         self.sendPacket(try spkt2.encode(self.alloc));
+        log.debug("sent player position look packet: {}", .{spkt2.base});
         spkt2.deinit(self.alloc);
 
         // send spawn position packet
         const spkt3 = try packet.S2CSpawnPositionPacket.init(self.alloc);
         spkt3.pos = self.player.?.player.base.pos;
-        log.debug("sending spawn position packet", .{});
         self.sendPacket(try spkt3.encode(self.alloc));
+        log.debug("sent spawn position packet: {}", .{spkt3.base});
         spkt3.deinit(self.alloc);
 
         // send hand slot packet
         const spkt4 = try packet.S2CHeldItemChangePacket.init(self.alloc);
         spkt4.slot = self.player.?.player.selected_hotbar_slot;
-        log.debug("sending hand slot packet", .{});
         self.sendPacket(try spkt4.encode(self.alloc));
+        log.debug("sent hand slot packet: {}", .{spkt4.base});
         spkt4.deinit(self.alloc);
     }
 };
