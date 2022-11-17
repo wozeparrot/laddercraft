@@ -124,7 +124,7 @@ pub const Server = struct {
         defer held.release();
 
         if (self.groups.count() == 0) {
-            var group = try Group.init(self.alloc, self);
+            const group = try Group.init(self.alloc, self);
             try group.start();
             try self.groups.put(group, {});
 

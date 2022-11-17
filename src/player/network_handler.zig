@@ -152,13 +152,13 @@ pub const NetworkHandler = struct {
             self.player.?.player.username = handshake_return.username;
             self.player.?.player.base.entity_id = server.nextEntityId();
 
-            // fine the best group to put the player in
+            // find the best group to put the player in
             const group = try server.findBestGroup(self.player.?);
             // transfer the player to the group
             try server.transferToGroup(self.player.?, group);
 
             // send join game packets
-            try await async self.transistionToPlay(server);
+            try self.transistionToPlay(server);
 
             log.debug("transitioned to play state for {s}", .{self.player.?.player.username});
 

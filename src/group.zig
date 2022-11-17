@@ -20,7 +20,7 @@ pub const Group = struct {
 
     players: std.AutoArrayHashMap(*Player, void),
     players_lock: std.event.Lock,
-    player_count: std.atomic.Atomic(u32),
+    player_count: std.atomic.Atomic(i64),
 
     chunks: std.AutoArrayHashMap(u64, *Chunk),
     chunks_lock: std.event.Lock,
@@ -36,7 +36,7 @@ pub const Group = struct {
 
             .players = std.AutoArrayHashMap(*Player, void).init(alloc),
             .players_lock = std.event.Lock{},
-            .player_count = std.atomic.Atomic(u32).init(0),
+            .player_count = std.atomic.Atomic(i64).init(-1),
 
             .chunks = std.AutoArrayHashMap(u64, *Chunk).init(alloc),
             .chunks_lock = std.event.Lock{},
@@ -93,7 +93,11 @@ pub const Group = struct {
         const held = self.players_lock.acquire();
         defer held.release();
 
-        _ = self.player_count.fetchAdd(1, .Monotonic);
+        if (self.player_count.load(.SeqCst) == -1) {
+            _ = self.player_count.fetchAdd(2, .SeqCst);
+        } else {
+            _ = self.player_count.fetchAdd(1, .SeqCst);
+        }
         try self.players.put(player, {});
 
         player.group = self;
@@ -103,7 +107,7 @@ pub const Group = struct {
         const held = self.players_lock.acquire();
         defer held.release();
 
-        _ = self.player_count.fetchSub(1, .Monotonic);
+        _ = self.player_count.fetchSub(1, .SeqCst);
         if (self.players.fetchSwapRemove(player)) |entry| {
             const pkt = try packet.S2CPlayerInfoPacket.init(self.alloc);
             pkt.action = .remove_player;
