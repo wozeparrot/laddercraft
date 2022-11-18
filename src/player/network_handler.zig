@@ -175,7 +175,7 @@ pub const NetworkHandler = struct {
 
                         const gpkt = try packet.S2CSystemChatMessagePacket.init(self.alloc);
                         gpkt.message = chat.Text{
-                            .text = try std.mem.join(self.alloc, "", &[_][]const u8{ "[", self.player.?.player.username, "] ", pkt.message }),
+                            .text = try std.mem.join(self.alloc, "", &[_][]const u8{ "<", self.player.?.player.username, "> ", pkt.message }),
                         };
                         try self.player.?.group.?.server.sendPacketToAll(try gpkt.encode(self.alloc), null);
                         self.alloc.free(gpkt.message.text);
