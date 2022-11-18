@@ -41,13 +41,29 @@ pub fn main() !void {
     var state: State = .none;
     var current_item_id: u16 = 0;
 
-    const blocks = comptime std.meta.declarations(@import("blocks.zig"));
+    const block_decls = comptime std.meta.declarations(@import("blocks.zig"));
+    const blocks = @import("blocks.zig");
     const block_names = comptime blk: {
-        var names = [_][]const u8{""} ** blocks.len;
-        for (blocks) |decl, i| {
+        var names = [_][]const u8{""} ** block_decls.len;
+        for (block_decls) |decl, i| {
             names[i] = decl.name;
         }
         break :blk names;
+    };
+    _ = block_names;
+    @setEvalBranchQuota(100000);
+    const block_default_states = comptime blk: {
+        var states = [_]struct { @"0": []const u8, @"1": u16 }{.{ .@"0" = "", .@"1" = 0 }} ** block_decls.len;
+        for (block_decls) |decl, i| {
+            if (@typeInfo(@TypeOf(@field(blocks, decl.name))) != .Struct) continue;
+            for (@field(blocks, decl.name).states) |s| {
+                if (s.default) {
+                    states[i] = .{ .@"0" = decl.name, .@"1" = i - 4 };
+                    break;
+                }
+            }
+        }
+        break :blk std.ComptimeStringMap(u16, states);
     };
 
     while (try stream.next()) |tok| {
@@ -59,8 +75,9 @@ pub fn main() !void {
                         try writer.writeAll(t.slice(json, stream.i - 1));
                         try writer.writeAll("\" = Item{\n");
 
-                        if (indexOfSlice([]const u8, block_names[0..], t.slice(json, stream.i - 1))) |pos| {
-                            try i2bm_writer.print("{}, ", .{pos - 4});
+                        if (block_default_states.get(t.slice(json, stream.i - 1))) |i| {
+                            std.log.debug("found block {s} at {}", .{ t.slice(json, stream.i - 1), i });
+                            try i2bm_writer.print("{}, ", .{i});
                         } else {
                             try i2bm_writer.writeAll("0, ");
                         }

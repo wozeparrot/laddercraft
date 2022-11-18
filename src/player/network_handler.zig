@@ -332,6 +332,7 @@ pub const NetworkHandler = struct {
                         }
                         if (!self.player.?.player.checkBlockCollision(pos.toVec3())) {
                             if (self.player.?.player.inventory.slots[@as(usize, self.player.?.player.selected_hotbar_slot) + 36]) |slot| {
+                                log.debug("slot id: {}; item2block: {}; block2default: {}", .{ slot.id, registry.ITEMS.ItemToBlock[@intCast(usize, slot.id)], registry.BLOCKS.BlockToDefaultState[registry.ITEMS.ItemToBlock[@intCast(usize, slot.id)]] });
                                 _ = try self.player.?.group.?.setBlock(pos, @intCast(world.block.BlockState, registry.BLOCKS.BlockToDefaultState[registry.ITEMS.ItemToBlock[@intCast(usize, slot.id)]]));
                             } else if (self.player.?.player.inventory.slots[45]) |slot|
                                 _ = try self.player.?.group.?.setBlock(pos, @intCast(world.block.BlockState, registry.BLOCKS.BlockToDefaultState[registry.ITEMS.ItemToBlock[@intCast(usize, slot.id)]]));

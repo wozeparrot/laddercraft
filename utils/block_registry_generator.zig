@@ -100,7 +100,7 @@ pub fn main() !void {
                         } else if (std.mem.eql(u8, t.slice(json, stream.i - 1), "properties")) {
                             try writer.writeAll(".properties = &[_]Block.Property{\n");
                             state = .properties;
-                        } else std.debug.panic("broken json: {s} at {}", .{ t.slice(json, stream.i - 1), stream.i });
+                        } else if (std.mem.eql(u8, t.slice(json, stream.i - 1), "protocol_id")) {} else std.debug.panic("broken json: {s} at {}", .{ t.slice(json, stream.i - 1), stream.i });
                     },
                     .properties => {
                         try writer.writeAll(".{\n");
@@ -121,7 +121,7 @@ pub fn main() !void {
                         } else if (std.mem.eql(u8, slice, "default")) {
                             try writer.writeAll(".default = true,\n");
 
-                            try b2dsm_writer.print("{}, ", .{current_state_id - 1});
+                            try b2dsm_writer.print("{}, ", .{current_state_id});
                         } else if (std.mem.eql(u8, slice, "properties")) {
                             try writer.writeAll(",\n.properties = &[_]Block.Property{\n");
                             state = .s_properties;
@@ -151,6 +151,7 @@ pub fn main() !void {
                         try s2bm_writer.print("{}, ", .{current_block_id});
 
                         current_state_id += 1;
+                        std.log.debug("{s}", .{t.slice(json, stream.i - 1)});
                         // current_state_id = try std.fmt.parseUnsigned(u16, t.slice(json, stream.i - 1), 10);
                     },
                     else => {},
