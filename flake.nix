@@ -5,18 +5,21 @@
   inputs.flake-utils.url = "github:numtide/flake-utils";
   inputs.zig.url = "github:mitchellh/zig-overlay";
 
-  outputs = { self, nixpkgs, flake-utils, zig }:
+  outputs = {
+    self,
+    nixpkgs,
+    flake-utils,
+    zig,
+  }:
     flake-utils.lib.eachDefaultSystem (
-      system:
-      let
+      system: let
         pkgs = import nixpkgs {
           inherit system;
         };
-      in
-      {
+      in {
         devShell = pkgs.mkShell {
           nativeBuildInputs = [
-            zig.packages.${system}.master
+            zig.packages.${system}."0.10.1"
           ];
         };
       }
